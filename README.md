@@ -18,13 +18,7 @@ A two-deck DJ app for your own music and Creative Commons tracks, with yt-dlp bu
 - **New beat detection.** Tempo is read far more reliably (92% of the test library within 1% of the published tempo, up from 66%), beat grids are fitted through the whole track (no drift), open hi-hats no longer put the grid on the off-beat, and the other likely tempo readings are kept. Older grids are re-analysed the first time a track is loaded, unless you set them by hand. Analysis runs in the background.
 - **Engine timing:** audio runs at 48 kHz (was the device's 192 kHz), every start and jump is scheduled sample-exactly, and key-locked decks no longer slip when their tempo changes.
 - **Load over a playing deck**, dials reset on load, and the tempo-range picker is gone from under the slider.
-- Tests: Unknown command: "test"
-
-
-Did you mean this?
-  npm test # Test a package
-To see a list of supported npm commands, run:
-  npm help (analysis + sync clock),  (measures what each deck actually plays: 0 ms error in all 10 scenarios) and  (tempo accuracy vs. ).
+- Tests: `npm test` (analysis + sync clock), `electron --background test/sync-harness/run.cjs` (measures what each deck actually plays: 0 ms error in all 10 scenarios) and `electron --background test/library-eval.cjs` (tempo accuracy against `test/ground-truth.json`).
 
 ## What's new in 0.3.7-beta
 
