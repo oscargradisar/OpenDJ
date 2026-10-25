@@ -952,3 +952,4 @@ body.decks-4 .mixer { top: 50%; transform: translate(-50%, -50%); }
 /* 4 decks: with a video the XY pad fills the rest of the square; without, it's the square. */
 body.decks-4 .mixer .xypad { max-width: none; width: 100%; aspect-ratio: 1; }
 body.decks-4 .console:has(#mvCenter:not([hidden])) .mixer .xypad { aspect-ratio: auto; height: calc(var(--mw) - 20px - (var(--mw) - 20px) * 9 / 16 - 10px); }
+.tempo-range { display: none; }

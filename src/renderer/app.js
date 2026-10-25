@@ -1,14 +1,17 @@
 // Commons DJ — UI
 import { Mixer, peakDb, STEMS, AI_STEM_NAMES, XF_SIDE } from './engine.js';
+import { SyncGroup } from './sync.js';
 import { SOUNDS } from './sfx.js';
-import { mixToMono, computeWaveform, overview, detectTempo, detectMeter, detectKey, keyName, camelot, transposeKey, threeFourSupport } from './analysis.js';
+import { mixToMono, computeWaveform, overview, analyzeTrack, fitGridAt, detectMeter, keyName, camelot, transposeKey, threeFourSupport, ANALYSIS_VERSION } from './analysis.js';
 
 const api = window.cdj;
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
 const mixer = new Mixer();
-window.cdjDebug = { mixer }; // for tests and the devtools console
+// Beat sync: every synced deck locks to one shared clock (see sync.js).
+const group = new SyncGroup(mixer, { onChange: () => onSyncChange() });
+window.cdjDebug = { mixer, group }; // for tests and the devtools console
 const DECKS = ['A', 'B', 'C', 'D']; // all built; C and D show in 4-deck mode (Settings)
 const activeDecks = () => (document.body.classList.contains('decks-4') ? DECKS : ['A', 'B']);
 const otherSide = (name) => (XF_SIDE[name] === 'L' ? 'R' : 'L');
@@ -236,19 +239,19 @@ function buildDeck(name) {
   ui[name] = d;
 
   d.play.addEventListener('click', () => {
-    deck.toggle();
+    togglePlay(name);
     markPlayed(name);
   });
   d.cue.addEventListener('click', () => deck.cue());
   d.sync.addEventListener('click', () => doSync(name));
-  // Sync ratio: ½× → 1× → 2×. A tempo-locked deck re-syncs straight away.
+  // Sync ratio: Auto (nearest ½ / 1 / 2) → ½× → 1× → 2×. A synced deck re-joins straight away.
   const multBtn = $('.sync-mult', root);
+  multBtn.textContent = 'Auto';
   multBtn.addEventListener('click', () => {
-    deck.syncMult = { 0.5: 1, 1: 2, 2: 0.5 }[deck.syncMult || 1];
-    multBtn.textContent = { 0.5: '½×', 1: '1×', 2: '2×' }[deck.syncMult];
-    multBtn.classList.toggle('on', deck.syncMult !== 1);
-    // A new ratio changes which beats line up, so re-sync tempo and beat, not just tempo.
-    if (syncLinked.has(name)) deck.syncTo(mixer.decks[partnerDeck(name)]);
+    deck.forcedK = { null: 0.5, 0.5: 1, 1: 2, 2: null }[deck.forcedK ?? null];
+    multBtn.textContent = { null: 'Auto', 0.5: '½×', 1: '1×', 2: '2×' }[deck.forcedK ?? null];
+    multBtn.classList.toggle('on', deck.forcedK != null);
+    if (group.has(deck)) relink(name);
   });
 
   const applyTempo = () => {
@@ -261,7 +264,8 @@ function buildDeck(name) {
     applyTempo();
   });
   d.range.addEventListener('change', () => {
-    // Keep the current tempo when switching range, if it fits.
+    // Keep the current tempo when switching range: widen instead of clamping a synced deck.
+    if (group.has(deck)) return syncTempoSlider(name);
     const pct = (deck.rate - 1) * 100;
     const range = Number(d.range.value);
     d.tempo.value = Math.round(Math.max(-1, Math.min(1, pct / range)) * 1000);
@@ -321,7 +325,7 @@ function buildDeck(name) {
     if (!deck.buffer) return;
     const seekTo = (ev) => {
       const r = d.overview.getBoundingClientRect();
-      deck.seek(((ev.clientX - r.left) / r.width) * deck.duration);
+      deck.seek(group.quantizeSeek(deck, ((ev.clientX - r.left) / r.width) * deck.duration));
     };
     seekTo(e);
     d.overview.setPointerCapture(e.pointerId);
@@ -340,9 +344,10 @@ function buildDeck(name) {
     if (type === 'state' || type === 'load') renderDeckState(name);
     // Starting play with Snap on lands on the other deck's beat, whichever control started it.
     if (type === 'state') {
-      if (deck.playing && !wasPlaying) snapDeck(name);
+      if (deck.playing && !wasPlaying && !group.has(deck)) snapDeck(name); // synced decks start on the clock instead
       wasPlaying = deck.playing;
     }
+    if (type === 'bendEnd') group.keepOffset(deck); // a nudge on a synced deck sticks
     if (type === 'load') prepareVideo(name);
     if (type === 'load') {
       root.classList.remove('just-loaded');
@@ -352,10 +357,7 @@ function buildDeck(name) {
     if (type === 'loop' || type === 'load') d.loops.forEach((b) => b.classList.toggle('on', deck.loop?.beats === Number(b.dataset.beats)));
     if (type === 'rate' || type === 'load' || type === 'sync') renderTempo(name);
     if (type === 'rate') followTempo(name);
-    if (type === 'load' && syncLinked.delete(name)) {
-      if (syncLinked.size < 2) syncLinked.clear(); // a new track starts unlinked
-      renderSyncLights();
-    }
+    if (type === 'load') group.leave(deck); // a new track starts unlinked
     if (type === 'sync') syncTempoSlider(name);
     if (type === 'key' || type === 'rate' || type === 'load' || type === 'sync' || type === 'fx') renderKey(name);
     if (type === 'stems' || type === 'load' || type === 'fx') renderStems(name);
@@ -509,7 +511,8 @@ function playSfx(sound, pad) {
     const off = deck.track.beatOffset;
     const period = 60 / deck.bpm;
     const next = off + Math.ceil((p - off) / period + 0.02) * period;
-    t = ctx.currentTime + (next - p) / deck.rate;
+    // Decks reach the speakers through the fx node (2048 samples later); SFX don't, so wait that out too.
+    t = ctx.currentTime + (next - p) / deck.speed + (deck.fx ? 2048 / ctx.sampleRate : 0);
   }
   sound.play(ctx, mixer.sfx, t, beat);
   pad.classList.remove('hit');
@@ -649,28 +652,47 @@ function snapDeck(name) {
   else deck.seek(deck.pausedPos + shift);
 }
 
-// Sync lock: decks synced together stay tempo-locked. Move any one's tempo and the
-// rest follow at the same BPM (nudges don't spread: they're silent rate changes).
-const syncLinked = new Set();
-const renderSyncLights = () => DECKS.forEach((n) => ui[n].sync.classList.toggle('on', syncLinked.has(n)));
-let following = false;
-function followTempo(name) {
-  if (following || !syncLinked.has(name)) return;
-  following = true; // the followers' own rate events must not bounce back
-  for (const n of syncLinked) {
-    if (n !== name && mixer.decks[n].matchTempo(mixer.decks[name])) syncTempoSlider(n);
+// The SYNC lights, tempo sliders and readouts follow the group.
+function onSyncChange() {
+  for (const n of DECKS) {
+    const deck = mixer.decks[n];
+    ui[n].sync.classList.toggle('on', group.has(deck));
+    if (group.has(deck)) {
+      syncTempoSlider(n);
+      renderTempo(n);
+    }
   }
-  following = false;
+}
+
+/** Play / pause. A synced deck starts on the clock: at its cue point, on the next matching beat. */
+function togglePlay(name) {
+  const deck = mixer.decks[name];
+  if (deck.playing || !group.has(deck)) return deck.toggle();
+  deck.play(group.startPlan(deck) || {});
+}
+
+// A tempo move on a synced deck moves the clock; the other members follow.
+function followTempo(name) {
+  for (const { deck, dropped } of group.setTempoFrom(mixer.decks[name])) {
+    if (dropped) toast(`Deck ${deck.name} left sync: the new tempo is out of its reach.`);
+    else syncTempoSlider(deck.name);
+  }
 }
 
 // A triplet feel can make the detector read a track at ¾ of its real tempo (Ice at 112
-// instead of 150, I Knew You Were Trouble at 115 instead of 154). Its grid still hits every
-// third real beat, so scaling it by 4⁄3 fills in the beats. On Sync, when the decks only
-// line up within reach if one of them is ×4⁄3, and the audio backs that, fix it first.
+// instead of 150, I Knew You Were Trouble at 115 instead of 154). When two decks are too
+// far apart to sync, try the other tempo readings the analysis found (bpmAlts, each with its
+// own fitted grid) and use the one that brings them in reach, the best-supported first.
+// Tracks analysed before alternatives existed fall back to ×4⁄3, only when the audio clearly backs it.
 const threeFourCache = new Map(); // track id → support for ×4⁄3
-function fixThreeFour(a, b) {
-  const off = (x, y) => Math.min(...[1, 2, 0.5].map((m) => Math.abs(Math.log((x * m) / y)))); // tempo gap, any octave
-  if (off(a.bpm, b.bpm) < Math.log(1.15)) return; // reachable as they are
+function rescueTempo(a, b) {
+  const gap = (x, y) => Math.min(...[1, 2, 0.5].map((m) => Math.abs(Math.log((x * m) / y)))); // tempo gap, any octave
+  const options = [];
+  for (const [d, o] of [[a, b], [b, a]]) {
+    const alts = d.track.bpmAlts?.length ? d.track.bpmAlts.filter((x) => (x.rel ?? 1) >= 0.6) : [{ bpm: (d.bpm * 4) / 3, offset: null, rel: null }];
+    for (const alt of alts) if (gap(alt.bpm, o.bpm) < Math.log(1.08)) options.push({ d, alt });
+  }
+  if (!options.length) return false;
   const support = (d) => {
     if (!threeFourCache.has(d.track.id)) {
       const ch = [];
@@ -679,35 +701,58 @@ function fixThreeFour(a, b) {
     }
     return threeFourCache.get(d.track.id);
   };
-  const fits = [a, b].filter((d) => off((d.bpm * 4) / 3, (d === a ? b : a).bpm) < Math.log(1.1));
-  if (!fits.length) return;
-  // Only one way to line them up: take it. Both: the one the audio backs more.
-  const fix = fits.length === 1 ? fits[0] : fits.reduce((x, y) => (support(y) > support(x) ? y : x));
-  if (fits.length > 1 && support(fix) < 1) return;
-  const was = fix.bpm;
-  scaleBpm(fix.name, 4 / 3);
-  threeFourCache.delete(fix.track.id);
-  toast(`Deck ${fix.name} was read at ¾ of its tempo: ${was} → ${fix.bpm} BPM.`);
+  const score = ({ d, alt }) => alt.rel ?? support(d);
+  const pick = options.reduce((x, y) => (score(y) > score(x) ? y : x));
+  // An analysed alternative needs decent support; the old ×4⁄3 guess needs the audio to clearly back it.
+  if (score(pick) < (pick.alt.rel != null ? 0.6 : 1.1)) return false;
+  const { d, alt } = pick;
+  const was = d.bpm;
+  const t = d.track;
+  const patch = { bpm: Math.round(alt.bpm * 1000) / 1000 };
+  if (alt.offset != null) {
+    // The alternative's own grid: keep the bar start on its nearest new beat.
+    const p = 60 / patch.bpm;
+    const old = t.downbeat ?? alt.offset;
+    patch.beatOffset = alt.offset;
+    patch.downbeat = alt.offset + Math.round((old - alt.offset) / p) * p;
+  }
+  if (t.beatsPerBar === 3 && alt.bpm / was > 1.2) patch.beatsPerBar = 4; // 3 slow beats were one 4/4 bar
+  saveTrack(t, patch);
+  threeFourCache.delete(t.id);
+  renderTempo(d.name);
+  renderLibrary();
+  toast(`Deck ${d.name} was read at the wrong tempo: ${was} → ${patch.bpm} BPM.`);
+  return true;
+}
+
+/** The deck a new sync should lock to: a group member if there is a group, else the partner. */
+function syncPartner(name) {
+  const deck = mixer.decks[name];
+  const members = [...group.members.keys()].filter((d) => d !== deck);
+  return members.find((d) => d.playing) || members[0] || mixer.decks[partnerDeck(name)];
 }
 
 function doSync(name) {
-  if (syncLinked.has(name)) {
-    // Pressed again: unlock this deck (a lone remaining deck isn't linked to anything).
-    syncLinked.delete(name);
-    if (syncLinked.size < 2) syncLinked.clear();
-    return renderSyncLights();
-  }
   const deck = mixer.decks[name];
-  const other = mixer.decks[partnerDeck(name)];
+  if (group.has(deck)) return group.leave(deck); // pressed again: unlink, keeping the current tempo
+  const other = syncPartner(name);
   if (!deck.track || !other.track) return toast('Load a track on another deck to sync to.');
   if (!deck.bpm || !other.bpm) return toast('Both tracks need a BPM — try TAP to set one.');
-  fixThreeFour(deck, other);
-  if (!deck.syncTo(other)) return toast('Tempos are too far apart to sync.', 'error');
-  if (deck.lastSync === 'beat' && deck.bars && other.bars && deck.bars.beatsPerBar !== other.bars.beatsPerBar)
+  let res = group.join(deck, other, { forcedK: deck.forcedK });
+  if (!res.ok && res.rateGap != null && !group.members.size && rescueTempo(deck, other)) res = group.join(deck, other, { forcedK: deck.forcedK });
+  if (!res.ok) return toast(res.reason, 'error');
+  if (deck.bars && other.bars && deck.bars.beatsPerBar !== other.bars.beatsPerBar)
     toast(`Synced beats only — deck ${name} is in ${deck.bars.beatsPerBar}/4, deck ${other.name} in ${other.bars.beatsPerBar}/4.`);
-  syncLinked.add(name);
-  syncLinked.add(other.name);
-  renderSyncLights();
+}
+
+/** After a grid or ratio change on a synced deck: join again so tempo and phase use the new grid. */
+function relink(name) {
+  const deck = mixer.decks[name];
+  if (!group.has(deck)) return;
+  const others = [...group.members.keys()].filter((d) => d !== deck);
+  group.leave(deck);
+  const res = group.join(deck, others.find((d) => d.playing) || others[0], { forcedK: deck.forcedK });
+  if (!res.ok) toast(res.reason, 'error');
 }
 
 const fmtSemis = (s) => {
@@ -863,7 +908,7 @@ function hotcue(name, i) {
     saveTrack(t, { cues });
     renderHotcues(name);
   } else {
-    deck.seek(cues[i]);
+    deck.seek(deck.playing ? group.quantizeSeek(deck, cues[i]) : cues[i]);
     if (!deck.playing) deck.cuePoint = cues[i];
   }
 }
@@ -877,15 +922,32 @@ function clearHotcue(name, i) {
   renderHotcues(name);
 }
 
-function scaleBpm(name, k) {
+async function scaleBpm(name, k) {
   const deck = mixer.decks[name];
   const t = deck.track;
-  if (!t?.bpm) return;
-  const bpm = Math.round(t.bpm * k * 100) / 100;
+  if (!t?.bpm || !deck.buffer) return;
+  const bpm = Math.round(t.bpm * k * 1000) / 1000;
   if (bpm < 40 || bpm > 300) return;
-  saveTrack(t, { bpm });
+  const ch = [];
+  for (let c = 0; c < deck.buffer.numberOfChannels; c++) ch.push(deck.buffer.getChannelData(c));
+  const mono = mixToMono(ch);
+  const fit = await analyse('fitAt', mono, deck.buffer.sampleRate, bpm).catch(() => null);
+  if (deck.track !== t) return; // another track was loaded meanwhile
+  const patch = { bpm: fit?.bpm ?? bpm, gridSource: 'user' };
+  if (fit?.offset != null) {
+    const meter = detectMeter(mono, deck.buffer.sampleRate, patch.bpm, fit.offset);
+    Object.assign(patch, { beatOffset: fit.offset, beatsPerBar: meter?.beatsPerBar ?? 4, downbeat: meter ? meter.downbeat : fit.offset });
+  }
+  saveTrack(t, patch);
   renderTempo(name);
   renderLibrary();
+  relink(name);
+}
+
+/** Track position you're hearing right now: what's rendered minus the fx node's and the device's delay. */
+function heardPosition(deck) {
+  const ctx = mixer.ctx;
+  return Math.max(0, deck.position - (2048 / ctx.sampleRate + (ctx.baseLatency || 0) + (ctx.outputLatency || 0)) * deck.speed);
 }
 
 function beatHere(name) {
@@ -893,9 +955,11 @@ function beatHere(name) {
   const t = deck.track;
   if (!t?.bpm) return toast('Set a BPM first (TAP along with the beat).');
   const period = 60 / t.bpm;
-  const offset = ((deck.position % period) + period) % period;
-  saveTrack(t, { beatOffset: offset, downbeat: offset });
+  const heard = heardPosition(deck);
+  const offset = ((heard % period) + period) % period;
+  saveTrack(t, { beatOffset: offset, downbeat: heard, gridSource: 'user' });
   toast(`Deck ${name}: the playhead is now beat 1 of the bar.`);
+  relink(name);
 }
 
 function cycleMeter(name) {
@@ -925,14 +989,16 @@ function setupTap(name) {
       const intervals = taps.slice(1).map((t, i) => t - taps[i]);
       const avg = intervals.slice(-8).reduce((a, b) => a + b, 0) / Math.min(8, intervals.length);
       const tapped = 60000 / avg; // tempo as heard (includes current pitch)
-      const bpm = Math.round((tapped / deck.rate) * 10) / 10;
+      const bpm = Math.round((tapped / deck.rate) * 1000) / 1000;
       const period = 60 / bpm;
-      const offset = ((deck.position % period) + period) % period;
+      const heard = heardPosition(deck);
+      const offset = ((heard % period) + period) % period;
       // Taps mark beats, not beat 1: keep the old bar start, moved onto the nearest new beat.
       const old = deck.track.downbeat ?? offset;
-      saveTrack(deck.track, { bpm, beatOffset: offset, downbeat: offset + Math.round((old - offset) / period) * period });
+      saveTrack(deck.track, { bpm, beatOffset: offset, downbeat: offset + Math.round((old - offset) / period) * period, gridSource: 'user' });
       renderTempo(name);
       renderLibrary();
+      relink(name);
     }
   };
   btn.addEventListener('pointerdown', tap);
@@ -941,12 +1007,39 @@ function setupTap(name) {
 
 // ------------------------------------------------------------------ loading tracks
 
+// Analysis runs in a worker so loading never stalls the decks; the main thread is the fallback.
+let analysisWorker = null;
+let analysisSeq = 0;
+const analysisWaiting = new Map();
+try {
+  analysisWorker = new Worker(new URL('./analysis-worker.js', import.meta.url), { type: 'module' });
+  analysisWorker.onmessage = ({ data }) => {
+    const job = analysisWaiting.get(data.id);
+    analysisWaiting.delete(data.id);
+    if (data.error) job?.reject(new Error(data.error));
+    else job?.resolve(data.result);
+  };
+} catch (err) {
+  console.error('Analysis worker unavailable, analysing on the main thread:', err);
+}
+/** op 'analyze' (tempo, meter, key) or 'fitAt' (re-fit the grid at a given BPM). mono is copied, not consumed. */
+function analyse(op, mono, sampleRate, bpm) {
+  if (!analysisWorker) return Promise.resolve(op === 'analyze' ? analyzeTrack(mono, sampleRate) : fitGridAt(mono, sampleRate, bpm));
+  return new Promise((resolve, reject) => {
+    const id = ++analysisSeq;
+    analysisWaiting.set(id, { resolve, reject });
+    const copy = mono.slice();
+    analysisWorker.postMessage({ id, op, mono: copy, sampleRate, bpm }, [copy.buffer]);
+  });
+}
+// Grids made by an older analyser are redone on load, unless you set them by hand (TAP, Beat 1, ÷2, ×2 ...).
+const needsAnalysis = (t) => t.bpm == null || (t.gridVersion !== ANALYSIS_VERSION && t.gridSource !== 'user');
+
 async function loadToDeck(name, trackId) {
   const deck = mixer.decks[name];
   const track = state.tracks.find((t) => t.id === trackId);
   if (!track) return;
   if (track.missing) return toast('That file is missing — it may have been moved or deleted.', 'error');
-  if (deck.playing) return toast(`Deck ${name} is playing — pause it before loading a new track.`, 'error');
 
   const d = ui[name];
   d.root.classList.add('loading');
@@ -963,31 +1056,26 @@ async function loadToDeck(name, trackId) {
 
     const patch = {};
     if (!track.duration) patch.duration = buffer.duration;
-    if (track.bpm == null) {
-      d.artist.textContent = 'Analyzing tempo…';
-      await new Promise((r) => setTimeout(r, 0));
-      const tempo = detectTempo(mono, buffer.sampleRate);
+    if (needsAnalysis(track)) {
+      d.artist.textContent = 'Finding the beat…';
+      const { tempo, meter, key } = await analyse('analyze', mono, buffer.sampleRate);
+      if (track.bpm) patch.gridPrev = { bpm: track.bpm, beatOffset: track.beatOffset, beatsPerBar: track.beatsPerBar, downbeat: track.downbeat };
+      Object.assign(patch, { gridVersion: ANALYSIS_VERSION, gridSource: 'auto' });
       if (tempo) {
-        patch.bpm = tempo.bpm;
-        patch.beatOffset = tempo.offset;
+        Object.assign(patch, {
+          bpm: tempo.bpm,
+          beatOffset: tempo.offset,
+          beatsPerBar: meter?.beatsPerBar ?? 4,
+          downbeat: meter ? meter.downbeat : tempo.offset,
+          bpmConfidence: tempo.confidence,
+          gridRms: tempo.gridRms,
+          variable: tempo.variable,
+          bpmAlts: tempo.alts,
+        });
       } else {
         patch.bpm = 0; // analysed, no clear beat
       }
-    }
-    const bpm = patch.bpm ?? track.bpm;
-    const beatOffset = patch.beatOffset ?? track.beatOffset;
-    if (track.beatsPerBar == null && bpm && beatOffset != null) {
-      d.artist.textContent = 'Finding the bars…';
-      await new Promise((r) => setTimeout(r, 0));
-      const meter = detectMeter(mono, buffer.sampleRate, bpm, beatOffset);
-      patch.beatsPerBar = meter?.beatsPerBar ?? 4;
-      patch.downbeat = meter ? meter.downbeat : beatOffset;
-    }
-    if (track.key == null) {
-      d.artist.textContent = 'Analyzing key…';
-      await new Promise((r) => setTimeout(r, 0));
-      const k = detectKey(mono, buffer.sampleRate);
-      patch.key = k ? k.key : -1; // -1: analysed, no clear key
+      if (track.key == null) patch.key = key ? key.key : -1; // -1: analysed, no clear key
     }
     if (Object.keys(patch).length) await saveTrack(track, patch);
     if (track.bpm === 0) track.bpm = null;
@@ -995,6 +1083,7 @@ async function loadToDeck(name, trackId) {
     state.waves[name] = wave;
     state.overviewImg[name] = null;
     deck.load(buffer, track);
+    state.knobs[name].forEach((k) => k.set(k.reset)); // gain, EQ and filter back to 12 o'clock
     // A fresh load starts at normal speed; keep the slider in step.
     d.tempo.value = 0;
     deck.setRate(1);
@@ -1040,15 +1129,17 @@ function setupDeckDrop(el, name) {
 // ------------------------------------------------------------------ mixer UI
 
 function buildMixer() {
+  state.knobs = {};
   for (const name of DECKS) {
     const deck = mixer.decks[name];
     const strip = $(`.strip[data-deck="${name}"]`);
     $(`#deck${name} .deck-body`).append(strip); // each deck carries its own channel strip, facing the centre
+    state.knobs[name] = [];
     for (const el of $$('.knob', strip)) {
       const p = el.dataset.param;
-      if (p === 'trim') new Knob(el, { min: -12, max: 12, value: 0, bipolar: true, onChange: (v) => deck.setTrim(v) });
-      else if (p === 'filter') new Knob(el, { min: -1, max: 1, value: 0, bipolar: true, onChange: (v) => deck.setFilter(v) });
-      else new Knob(el, { min: -26, max: 6, value: 0, bipolar: true, onChange: (v) => deck.setEq(p, v) });
+      if (p === 'trim') state.knobs[name].push(new Knob(el, { min: -12, max: 12, value: 0, bipolar: true, onChange: (v) => deck.setTrim(v) }));
+      else if (p === 'filter') state.knobs[name].push(new Knob(el, { min: -1, max: 1, value: 0, bipolar: true, onChange: (v) => deck.setFilter(v) }));
+      else state.knobs[name].push(new Knob(el, { min: -26, max: 6, value: 0, bipolar: true, onChange: (v) => deck.setEq(p, v) }));
     }
     const fader = $('.channel-fader', strip);
     fader.addEventListener('input', () => deck.setFader(Number(fader.value)));
@@ -2018,24 +2109,24 @@ function setupKeyboard() {
         spacePaused = playing;
       } else {
         // They're already in step: skip snap-on-play, which would nudge the first one before the rest start.
+        // Synced decks start through the clock (the first one re-anchors it, the rest land on its beat).
         state.startingTogether = true;
-        const start = [...new Set([...spacePaused, ...syncLinked])].filter((n) => mixer.decks[n].buffer && activeDecks().includes(n));
+        const synced = DECKS.filter((n) => group.has(mixer.decks[n]));
+        const start = [...new Set([...spacePaused, ...synced])].filter((n) => mixer.decks[n].buffer && activeDecks().includes(n));
+        start.sort((x, y) => spacePaused.includes(y) - spacePaused.includes(x)); // the decks that were playing lead
         start.forEach((n) => {
-          mixer.decks[n].play();
+          togglePlay(n);
           markPlayed(n);
         });
         state.startingTogether = false;
-        // Line the synced ones up on the beat of the deck that was playing before (or the first).
-        const lead = start.find((n) => spacePaused.includes(n)) || start[0];
-        start.filter((n) => n !== lead && syncLinked.has(n)).forEach((n) => mixer.decks[n].syncTo(mixer.decks[lead]));
         spacePaused = [];
       }
       return e.preventDefault();
     }
-    if (k === 'x') { A.toggle(); markPlayed('A'); }
+    if (k === 'x') { togglePlay('A'); markPlayed('A'); }
     else if (k === 'z') A.cue();
     else if (k === 'c') doSync('A');
-    else if (k === ',') { B.toggle(); markPlayed('B'); }
+    else if (k === ',') { togglePlay('B'); markPlayed('B'); }
     else if (k === 'm') B.cue();
     else if (k === '.') doSync('B');
     else if (e.code.startsWith('Digit') && e.code.slice(5) in hotA && !e.shiftKey) hotcue('A', hotA[e.code.slice(5)]);
@@ -2187,7 +2278,10 @@ function setDeckCount(n) {
     b.classList.toggle('on', on);
     b.setAttribute('aria-checked', String(on));
   });
-  if (!four) for (const name of ['C', 'D']) if (mixer.decks[name].playing) mixer.decks[name].pause();
+  if (!four) for (const name of ['C', 'D']) {
+    if (mixer.decks[name].playing) mixer.decks[name].pause();
+    group.leave(mixer.decks[name]);
+  }
   state.applyXY?.(); // up/down only counts with four decks
   fitToWindow(); // 4 decks need more height
   renderLibrary();

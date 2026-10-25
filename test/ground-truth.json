@@ -1,0 +1,635 @@
+[
+ {
+  "id": "0f7329a425b86c1e",
+  "title": "Aria Math (C418)",
+  "trueBpm": 168,
+  "confidence": "high",
+  "notes": "168 and 84 are the same tempo an octave apart; the notated pulse is 84 and Spotify/the detector say 168. Detected 168 is correct."
+ },
+ {
+  "id": "c47f20a2c6b091d1",
+  "title": "Up (Cardi B)",
+  "trueBpm": 166,
+  "confidence": "high",
+  "notes": "Trap tempo: 166 double-time or 83 half-time. The detector's 110.66 is exactly 2/3 of 166, a triplet/dotted-beat error."
+ },
+ {
+  "id": "2f35ad066b696311",
+  "title": "I Knew You Were Trouble. (Taylor Swift)",
+  "trueBpm": 154,
+  "confidence": "high",
+  "notes": "The dubstep-style chorus/drop is in half-time feel (77), so octave confusion is expected. Detected 153.99 is now correct (the earlier 115.5 was 3/4 of 154)."
+ },
+ {
+  "id": "fbed8c08e105d028",
+  "title": "Take Me To The Sun (d4vd)",
+  "trueBpm": 178,
+  "confidence": "high",
+  "notes": "Slow-feeling song; it may be perceived as 89 half-time. The detector's 118.8 is 2/3 of 178.2, another 2/3 error."
+ },
+ {
+  "id": "29db7279a0f924e1",
+  "title": "I Got No Time (The Living Tombstone)",
+  "trueBpm": 180,
+  "confidence": "high",
+  "notes": "180 or 90 by octave. The detector's 118.48 is roughly 2/3 of 178 (0.658 of 180), a 2/3 error, possibly with a slight drift."
+ },
+ {
+  "id": "c18a73377e080f41",
+  "title": "My Ordinary Life (The Living Tombstone)",
+  "trueBpm": 176,
+  "confidence": "high",
+  "notes": "The Songsterr tab marks a short intro (4 bars) at a different tempo (121) before the main 176 section. The detector returned null."
+ },
+ {
+  "id": "6cb6177fc90d1fe0",
+  "title": "It's Been So Long (The Living Tombstone)",
+  "trueBpm": 96,
+  "confidence": "high",
+  "notes": "The tab has a single 3/4 pickup or transition bar, so it is not a meter change. Detected 96 is correct."
+ },
+ {
+  "id": "733083342a00c37e",
+  "title": "Join Us for a Bite (JT Music, Andrea Storm Kaden)",
+  "trueBpm": 172,
+  "confidence": "high",
+  "notes": "Dubstep-style with half-time feel: 172 or 86. The detector's 129 is exactly 3/4 of 172, the same 3/4 error class as Terraria and IKYWT. Library duration 227 s does not exactly match the Deezer 236 s or 249 s editions (likely a YouTube rip)."
+ },
+ {
+  "id": "31b4c0ea509ddd56",
+  "title": "Five Nights at Freddy's (The Living Tombstone)",
+  "trueBpm": 103,
+  "confidence": "high",
+  "notes": "The detector's 124.22 is about 6/5 of 103, which is not an octave or a 3/4 or 2/3 ratio. It is wrong and suggests a spurious autocorrelation peak."
+ },
+ {
+  "id": "8f28890f0ea571e7",
+  "title": "Fly Me To The Moon - 2008 Remastered (Frank Sinatra, Count Basie)",
+  "trueBpm": 119.5,
+  "confidence": "high",
+  "notes": "Live big band with swing feel, so the tempo drifts slightly (about 116-121) and slows at the end. There is no fixed grid; a constant grid will smear a few ms. Detected 119.65 is fine."
+ },
+ {
+  "id": "97add3ac3fa1a3d2",
+  "title": "Can't Take My Eyes off You (Morten Harket)",
+  "trueBpm": 122,
+  "confidence": "high",
+  "notes": "Detector returned null."
+ },
+ {
+  "id": "e060a8f3d1cf5021",
+  "title": "Flying High Again (Ozzy Osbourne)",
+  "trueBpm": 125,
+  "confidence": "high",
+  "notes": "Studio version with a live drummer, so expect small drift. Detector returned null."
+ },
+ {
+  "id": "c7e22830cc74b14e",
+  "title": "Diary of a Madman (Ozzy Osbourne)",
+  "trueBpm": 88,
+  "confidence": "medium",
+  "variable": true,
+  "notes": "Variable tempo with constant meter changes (9/8, 7/4, 6/8, 3/4), so it cannot be beat-synced with a single constant grid. The main pulse is about 88 (Spotify/Deezer give the double, 174-175). The detector's 115.62 matches only the short 115 passage or is 2/3 of 173. Treat this track as unsyncable."
+ },
+ {
+  "id": "f723b6ae348d6c3b",
+  "title": "Crazy Train (Ozzy Osbourne)",
+  "trueBpm": 138,
+  "confidence": "high",
+  "notes": "Live drummer, so expect slight drift. Live with Randy Rhoads is 142 (Songsterr, a different recording). Detector returned null."
+ },
+ {
+  "id": "55c95fd830c1e770",
+  "title": "Mr. Crowley (Ozzy Osbourne)",
+  "trueBpm": 108,
+  "confidence": "high",
+  "notes": "Not constant tempo. The free organ intro is about 90, then the band drifts upward from 106 to 113 across the song (about +5%). A constant grid will drift badly by the end; it needs a beat map or continuous phase correction. Detector returned null."
+ },
+ {
+  "id": "69ca20aaac6e3164",
+  "title": "Simulation Swarm (Big Thief)",
+  "trueBpm": 106,
+  "confidence": "medium",
+  "notes": "Sources spread from 105 to 107 (live-played indie folk, no click). The detector's 106 sits in the middle. The tab includes a few 2/4 and 2/8 bars, so downbeats shift."
+ },
+ {
+  "id": "737f039964600cea",
+  "title": "This Night Has Opened My Eyes - 2011 Remaster (The Smiths)",
+  "trueBpm": 100,
+  "confidence": "high",
+  "notes": "Live band, so expect slight drift (99-101). Detector returned null."
+ },
+ {
+  "id": "524966caa7ae3ae2",
+  "title": "Some Girls Are Bigger Than Others - 2011 Remaster (The Smiths)",
+  "trueBpm": 162,
+  "confidence": "high",
+  "notes": "The detector's 107.82 is exactly 2/3 of 161.7, a 2/3 error. Could be read as 81 half-time."
+ },
+ {
+  "id": "33ab4668401c00f1",
+  "title": "Bohemian Rhapsody (Queen)",
+  "trueBpm": 72,
+  "confidence": "medium",
+  "variable": true,
+  "notes": "Multi-section song with a strongly variable tempo: the ballad is about 72, the opera and hard-rock sections are about 142-154 (roughly double, but drifting), and some sections are in 12/8. No single tempo applies, so it is unsyncable with a constant grid. 72 is the opening/ballad tempo."
+ },
+ {
+  "id": "76d0c8fee39ba04f",
+  "title": "Dear Maria, Count Me In (All Time Low)",
+  "trueBpm": 181,
+  "confidence": "high",
+  "notes": "Fast pop-punk. 181 or 90.5 by octave. Detector returned null."
+ },
+ {
+  "id": "73cbff68da16c16f",
+  "title": "Wow. (Post Malone)",
+  "trueBpm": 100,
+  "confidence": "high",
+  "notes": "The detector's 132.85 is 4/3 of 99.6 (dotted or triplet hi-hat pattern). Wrong."
+ },
+ {
+  "id": "4a77a391ed149032",
+  "title": "Congratulations (Post Malone, Quavo)",
+  "trueBpm": 123,
+  "confidence": "high",
+  "notes": "Programmed beat. Detected 123 is correct."
+ },
+ {
+  "id": "8a4bdbffa16a54d5",
+  "title": "rockstar (feat. 21 Savage) (Post Malone)",
+  "trueBpm": 160,
+  "confidence": "high",
+  "notes": "Trap: 160 or 80 by octave. The detector's 128 (earlier 128.64) is 4/5 of 160, not an octave or a 3/4 ratio. Wrong."
+ },
+ {
+  "id": "a8aadca8421a0412",
+  "title": "Shiawase - VIP (Dion Timmer)",
+  "trueBpm": 150,
+  "confidence": "high",
+  "notes": "Dubstep: 150 grid, with drops felt in half-time at 75. Detector returned null."
+ },
+ {
+  "id": "b92016c1d1f44c6e",
+  "title": "Sphere (Creo)",
+  "trueBpm": 100,
+  "confidence": "high",
+  "notes": "Electronic, constant tempo. Detected 100 is correct."
+ },
+ {
+  "id": "c165bb1197eaed4d",
+  "title": "Dimension (Creo)",
+  "trueBpm": 115,
+  "confidence": "high",
+  "notes": "Electronic, constant tempo. Detected 115 is correct."
+ },
+ {
+  "id": "770dcbcb433ad63b",
+  "title": "How Soon Is Now? (The Smiths, Official Music Video / single edit)",
+  "trueBpm": 95,
+  "confidence": "high",
+  "notes": "About 95-96 (190.5 double). The tremolo guitar plays straight 16ths and the drums are a looped beat. The detector's 126.26 is 4/3 of 94.7, a 4/3 error. Wrong."
+ },
+ {
+  "id": "47448d839e0dfb5e",
+  "title": "Get Lucky (Daft Punk feat. Pharrell Williams and Nile Rodgers, Official Video)",
+  "trueBpm": 116,
+  "confidence": "high",
+  "notes": "Constant tempo with live-played, quantised feel. The 248 s length matches the radio edit. Detector returned null."
+ },
+ {
+  "id": "4074d6242deb6f8b",
+  "title": "Harder, Better, Faster, Stronger (Daft Punk, Official Video)",
+  "trueBpm": 123.45,
+  "confidence": "high",
+  "notes": "Fractional tempo. A whole-BPM grid of 123 would drift about 0.45/123.45, roughly 0.36%, or about 0.8 s over 223 s. This is a good test of the 'round to whole BPM if within 0.06' rule, which must NOT round here. Detector returned null. The music video may add a non-music intro, which shifts the offset."
+ },
+ {
+  "id": "250430984b89152f",
+  "title": "Harder, Better, Faster, Stronger (Daft Punk, Official Audio)",
+  "trueBpm": 123.45,
+  "confidence": "high",
+  "notes": "Same recording as index 28 (225 s vs 223 s). Use it to check that both copies get the same BPM and a consistent offset. The fractional 123.45 must not be rounded to 123. Detector returned null."
+ },
+ {
+  "id": "a7a4f1a684b788dc",
+  "title": "Daft Punk - One More Time",
+  "trueBpm": 122.9,
+  "confidence": "high",
+  "notes": "Our file is 321 s, which matches the 5:20 album cut, so use 122.9. The 126 values belong to shorter or remixed edits. Detected 122.88 is correct."
+ },
+ {
+  "id": "232a04187c7d38ad",
+  "title": "Kanye West - Flashing Lights",
+  "trueBpm": 90.5,
+  "confidence": "high",
+  "notes": "Sources fall between 90 and 91. Detected 90.49 is correct."
+ },
+ {
+  "id": "3f43426f8a540fc8",
+  "title": "Kanye West - Through The Wire",
+  "trueBpm": 83,
+  "confidence": "high",
+  "notes": "DETECTOR ERROR: detected 110.65 = 4/3 x 83.0. It is the reverse of the Ice/Taylor Swift 3/4 error, so 4/3 misreads also happen. Our own probe confirms 83 from the audio. I did not verify the cause (possibly a triplet or swing subdivision)."
+ },
+ {
+  "id": "21fc30e32f720fdb",
+  "title": "Kanye West & Lil Pump - I Love It feat. Adele Givens",
+  "trueBpm": 104,
+  "confidence": "high",
+  "notes": "Detected 104 is correct."
+ },
+ {
+  "id": "39b19a3617e917e2",
+  "title": "Kanye West - Stronger",
+  "trueBpm": 104,
+  "confidence": "high",
+  "notes": "Detected 104 is correct. The 124 BPM listing is for the AD Remix, not this track."
+ },
+ {
+  "id": "2ec517726f0fef25",
+  "title": "Lil Uzi Vert - 20 Min",
+  "trueBpm": 123,
+  "confidence": "high",
+  "notes": "Both sites probably draw on the same Spotify analysis, so they are not fully independent. Detected 123.39 agrees. The trap hats suggest a half-time feel (61.5)."
+ },
+ {
+  "id": "3bfaff1c8faa855d",
+  "title": "AC/DC - Back In Black",
+  "trueBpm": 93.7,
+  "confidence": "high",
+  "notes": "VARIABLE TEMPO: a live drummer with no click, so it drifts between about 92 and 96. A single constant grid will slip. Detected 92.18 (probe 92.35) is about 1.5% below the 93.6-94 analyser consensus."
+ },
+ {
+  "id": "c250a8cb5b7b80cb",
+  "title": "SIDEPIECE - Can I Ride ft. 95 South",
+  "trueBpm": 131,
+  "confidence": "medium",
+  "notes": "Only one source. It is a 2026 release, so it is not on songbpm yet. Our file is 163 s, which matches the 2:43 single. Detected 132 is 1 BPM away; tech house is usually an exact integer, so Beatport's value would settle it."
+ },
+ {
+  "id": "86b6fdf462698cb5",
+  "title": "XXXTENTACION - MOONLIGHT",
+  "trueBpm": 128,
+  "confidence": "high",
+  "notes": "Trap with a half-time feel (64 BPM is also valid for counting). Detected 128 is correct."
+ },
+ {
+  "id": "5a02537cd3a33dff",
+  "title": "Lynyrd Skynyrd - Sweet Home Alabama",
+  "trueBpm": 98,
+  "confidence": "high",
+  "notes": "Our file is 284 s, which matches songbpm's 4:44. A 1974 live band with no click, so expect small drift. Detected 98.55 is close."
+ },
+ {
+  "id": "f36ac0eedaab522b",
+  "title": "Terraria - Overworld Day",
+  "trueBpm": 150,
+  "confidence": "high",
+  "notes": "Durations match (138 s). Detected 150 is correct."
+ },
+ {
+  "id": "3caefe712700a4c9",
+  "title": "Terraria Soundtrack - Underground",
+  "trueBpm": 120,
+  "confidence": "medium",
+  "notes": "Durations match (180 s). Our detector returned null for this track."
+ },
+ {
+  "id": "7815c12d1d9a2fc9",
+  "title": "Terraria - Rain",
+  "trueBpm": 150,
+  "confidence": "medium",
+  "notes": "Durations match (96 s). Detected 150 agrees."
+ },
+ {
+  "id": "dfb207ce27e48712",
+  "title": "Terraria - Boss 1",
+  "trueBpm": 140,
+  "confidence": "medium",
+  "notes": "Durations match (137 s). Detected 140 agrees."
+ },
+ {
+  "id": "0495d3c102a12492",
+  "title": "Terraria - Ice",
+  "trueBpm": 112,
+  "confidence": "low",
+  "notes": "CONFLICT with the brief's 'real ~150'. The only web source (Spotify-derived songbpm) says 112, the same as our detector. Our own onset probe gives the 4/3 candidate only 0.47 of the strength at 112. The 149.33 in the saved library came from the sync 3/4 heuristic (toast 'Deck A was read at 3/4 of its tempo') after pairing Ice with Day, not from audio evidence. Treat it as unverified, and confirm by tapping along before using it as a 3/4 test case. Durations match (95 s)."
+ },
+ {
+  "id": "a1cfff13ec188038",
+  "title": "Terraria Soundtrack - Jungle",
+  "trueBpm": 100,
+  "confidence": "medium",
+  "notes": "Durations match (165 s). Detected 100 agrees."
+ },
+ {
+  "id": "e5ce4f878efdc79e",
+  "title": "Terraria Soundtrack - Plantera",
+  "trueBpm": 100,
+  "confidence": "high",
+  "notes": "Our 157 s file is about two loops of the 1:17 track. The wiki calls it fast rock/metal, so 200 is a possible double-time reading. Our detector returned null."
+ },
+ {
+  "id": "3b55dac9b079e4ba",
+  "title": "Terraria - Space",
+  "trueBpm": 95,
+  "confidence": "medium",
+  "notes": "Durations match (96 s). The wiki describes the desktop Space theme as 'quick and carefree' with airy synths, so 190 is a possible octave reading. Our detector returned null."
+ },
+ {
+  "id": "65a204b535bcc717",
+  "title": "Terraria - Boss 2",
+  "trueBpm": 152,
+  "confidence": "medium",
+  "notes": "Durations match (121 s). Our detector returned null."
+ },
+ {
+  "id": "e42a9060610efb8b",
+  "title": "DM DOKURO - Stained, Brutal Calamity",
+  "trueBpm": 90,
+  "confidence": "medium",
+  "variable": true,
+  "notes": "VARIABLE TEMPO likely: a 12-minute, four-part, non-looping piece with choir and metal sections. A single constant grid will not fit it. Durations match (733 s). Our detector returned null. 90 is Spotify's single global value and may be a half-time reading of 180."
+ },
+ {
+  "id": "7a8eaf2525ab716a",
+  "title": "Terraria - Pumpkin Moon",
+  "trueBpm": 100,
+  "confidence": "medium",
+  "notes": "Durations match (86 s). Our detector returned null."
+ },
+ {
+  "id": "78e50471254b891d",
+  "title": "Zedd - Clarity (feat. Foxes)",
+  "trueBpm": 128,
+  "confidence": "high",
+  "notes": "Detected 128 is correct."
+ },
+ {
+  "id": "ded94bd3294b94d4",
+  "title": "Shadern - coltrane (zeke didn't \"invent dariacore\", i did)",
+  "trueBpm": null,
+  "confidence": "low",
+  "notes": "I found no BPM for this track on any site. Dariacore is sample-chopped and often changes tempo, so a constant grid may not fit. Detected 95 is unverified, and the probe gives near-equal strength to about 127 and about 63."
+ },
+ {
+  "id": "637d1c5672ee5eac",
+  "title": "Skrillex - Kill Everybody",
+  "trueBpm": 128,
+  "confidence": "high",
+  "notes": "The two sources are 1 BPM apart. Our detector returned null for both library copies of this song (this entry and id 9068bddc98e64ae1). It has electro-house and dubstep sections, so a 64 half-time reading is also possible."
+ },
+ {
+  "id": "dd3ee7ee2fa1d5c3",
+  "title": "Skrillex - First Of The Year (Equinox)",
+  "trueBpm": 145,
+  "confidence": "high",
+  "notes": "Dubstep with a half-time feel (72.5). Spotify's 116 is 0.8 x 145, which shows the Spotify-derived sites make metrical errors too. Detected 145 is correct."
+ },
+ {
+  "id": "9068bddc98e64ae1",
+  "title": "Skrillex - Kill EVERYBODY (duplicate)",
+  "trueBpm": 128,
+  "confidence": "high",
+  "notes": "The same song as id 637d1c5672ee5eac, and our detector returned null here too."
+ },
+ {
+  "id": "2f33217a39385071",
+  "title": "Skrillex - Rock n Roll (Will Take You to the Mountain)",
+  "trueBpm": 128,
+  "confidence": "high",
+  "notes": "Detected 127.87 is fine."
+ },
+ {
+  "id": "daaa9dcb2e458443",
+  "title": "Katy Perry - Firework",
+  "trueBpm": 124,
+  "confidence": "high",
+  "notes": "Detected 124 is correct."
+ },
+ {
+  "id": "f274c6bf7e0896ab",
+  "title": "Virtual Riot - Energy Drink",
+  "trueBpm": 128,
+  "confidence": "medium",
+  "notes": "Only one source. Durations match (304 s). It is a 2013 electro-house single, where 128 is the genre norm. Detected 128 agrees."
+ },
+ {
+  "id": "a6e68c466d6ab2a8",
+  "title": "GHOSTEMANE - VENOM",
+  "trueBpm": 145,
+  "confidence": "medium",
+  "notes": "Only one source. Our file (uploader 'HEVOX', 127 s) is shorter than the 2:14 Spotify original, so it may be an edit or sped-up version and its tempo may differ. Detected 149.66 is 3% above 145, and the probe has stronger peaks near 111 and 99, so this tempo is unstable for our detector."
+ },
+ {
+  "id": "6d52bf5c2f774fc6",
+  "title": "XXXTENTACION - Jocelyn Flores",
+  "trueBpm": 134,
+  "confidence": "high",
+  "notes": "Sites split 134 vs 67-68, which is an octave apart. The slow ballad feel is about 67. Our detector returned null. The file is 120 s, which matches the 1:59 album version. C minor."
+ },
+ {
+  "id": "04b9c3ac3d29fd23",
+  "title": "XXXTENTACION - SAD!",
+  "trueBpm": 75,
+  "confidence": "high",
+  "notes": "Most sources say 75. songbpm says 150, an exact octave. Our detector's 150 is the octave, so it is fine for sync. Ab major."
+ },
+ {
+  "id": "a532b9a41c962b15",
+  "title": "XXXTENTACION - Hope",
+  "trueBpm": 146,
+  "confidence": "high",
+  "notes": "Our detected 58.4 is wrong: it is 0.4x the true tempo and not an octave. This lyric upload is 111 s, which matches the 1:50 original, so it does not look slowed. A minor."
+ },
+ {
+  "id": "66b6c0e385b4d447",
+  "title": "GHOSTEMANE - BUCKETLIST",
+  "trueBpm": 97,
+  "confidence": "medium",
+  "notes": "Only one database lists it. It is a recent single, and tunebat, getsongbpm and sfrbeats had no entry. The Spotify version is 2:26 but the music-video file is 157 s, so the video probably has an extra intro or outro. Our detector returned null. A major."
+ },
+ {
+  "id": "2ff4a005e6deb896",
+  "title": "Eminem - Lose Yourself",
+  "trueBpm": 171,
+  "confidence": "high",
+  "notes": "The tempo changes: the intro is slower (sheet music marks 66) before the main beat at 86, which is 171 in double time. The half-time pulse of about 85.7 is just as valid musically. Our detected 171.44 is exactly 2x 85.7, so it is fine. The intro will not fit a constant grid. D minor/major."
+ },
+ {
+  "id": "2ca68f307677cf08",
+  "title": "Andrew Gold - Spooky, Scary Skeletons",
+  "trueBpm": 154,
+  "confidence": "high",
+  "notes": "The published sheet music marks quarter = 155. The Spotify-derived sites say 77, which is half. Our detected 154.23 agrees. songbpm and getsongbpm list 5 beats per bar, which is probably a Spotify meter artifact, and no other source supports it. This 'Original Video' upload is 158 s against the 2:08 audio, so it likely has extra video intro. G major per the sites; the leadsheet is in B minor."
+ },
+ {
+  "id": "4ed8dc706b157297",
+  "title": "Guthrie Govan - East City Central Lights (JTC)",
+  "trueBpm": null,
+  "confidence": "low",
+  "notes": "No tempo source found. The title is not in the songbpm Guthrie Govan catalog, the JTC jamtracks listings checked, or web search. It looks like a JTC Guitar product clip. Our detector read 134.45, which nothing confirms."
+ },
+ {
+  "id": "a573d7eb4e39069f",
+  "title": "Guthrie Govan - Waves",
+  "trueBpm": 156,
+  "confidence": "medium",
+  "notes": "Sources conflict. The two 156 values both come from Spotify data, and getsongbpm says 108. Our detected 104.09 is almost exactly 156 x 2/3, the classic beat-vs-dotted-quarter (triplet) confusion. The meter or feel is unconfirmed: Premier Guitar mentions a 16th-note motif but gives no tempo. Verify by ear. File is 309 s, matching 5:09."
+ },
+ {
+  "id": "a085a2ab920ff120",
+  "title": "Guthrie Govan - Wonderful Slippery Thing",
+  "trueBpm": 96,
+  "confidence": "medium",
+  "notes": "The three 96 values share Spotify as their source. getsongbpm's 142 is about 1.5x 96. Our detected 127.92 is exactly 96 x 4/3 (a 3-sixteenth or dotted-eighth period), which suggests syncopated or swung 16ths confusing the detector. It has a free chord-melody intro, so the opening is not on a grid. Verify by ear."
+ },
+ {
+  "id": "619bf2f0c7be051f",
+  "title": "Guthrie Govan - Fives",
+  "trueBpm": 152,
+  "confidence": "high",
+  "notes": "The song is in 5/4, so beatsPerBar should be 5; a 4-beat bar grid will drift against the phrasing. Our detector returned null. File is 267 s, matching 4:27."
+ },
+ {
+  "id": "75c55d9210893bfe",
+  "title": "Guthrie Govan - Larry Carlton Style Track (JTC)",
+  "trueBpm": 124,
+  "confidence": "medium",
+  "notes": "One source, but it is the producer's own store metadata, so it is reliable. Our file is an 82 s preview of the 4:54 track. Our detected 123.88 matches."
+ },
+ {
+  "id": "fda5c105d2d7ea98",
+  "title": "Billy Strings - Cocaine Blues (live, Theo Von clip)",
+  "trueBpm": null,
+  "confidence": "low",
+  "notes": "This 343 s file is a live acoustic clip from This Past Weekend w/ Theo Von (#483, 2024) and may include talking. No tempo is published for that performance. The studio version is 129, but a live solo take can be far off, so this is null. Our detector read 121.75."
+ },
+ {
+  "id": "26df3c51fca8038b",
+  "title": "Johnny Cash - Cocaine Blues",
+  "trueBpm": 121,
+  "confidence": "medium",
+  "notes": "I picked the version by duration. The file is 182 s, which matches the At Folsom Prison album take (3:03, 121) and not the 3:18 studio version at 143. It is a live recording with no click, so expect some drift. Our detector returned null."
+ },
+ {
+  "id": "66a905de71d27860",
+  "title": "Zedd - Clarity ft. Foxes",
+  "trueBpm": 128,
+  "confidence": "high",
+  "notes": "Steady electronic tempo. Our detector returned null. File is 276 s against the 4:31 album version, close enough."
+ },
+ {
+  "id": "1bdfa4f2ef87f874",
+  "title": "Gwen Stefani - Hollaback Girl",
+  "trueBpm": 110,
+  "confidence": "high",
+  "notes": "Our detected 110 matches. The music-video file (210 s) is a little longer than the 3:19 audio."
+ },
+ {
+  "id": "feca3805a3f4ea9d",
+  "title": "The Living Tombstone - Die In a Fire (feat. Orko & EileMonty)",
+  "trueBpm": 110,
+  "confidence": "high",
+  "notes": "Our detected 110 matches. File is 186 s, matching 3:05."
+ },
+ {
+  "id": "70cecf1c6a86a7a0",
+  "title": "Kevin Gates - I'm a Dog (Lyrics)",
+  "trueBpm": 79,
+  "confidence": "medium",
+  "notes": "One database only (2025 release). 79 and 158 are an octave apart. The file is 140 s against the 2:29 Spotify version, so the edit differs, and a slight speed-up cannot be ruled out. Our detected 155.4 is close to 158 but about 1.6% off. Same song as entry 203805a0886875f9."
+ },
+ {
+  "id": "203805a0886875f9",
+  "title": "Kevin Gates - I'm A Dog (Official Audio)",
+  "trueBpm": 79,
+  "confidence": "medium",
+  "notes": "Same song and same 140 s length as entry 70cecf1c6a86a7a0, yet our detector gave 125.87 here and 155.4 there. That inconsistency is a good regression test. 125.87 is not an octave of 79/158 (about 0.8x of 158). The duration differs from the 2:29 Spotify version."
+ },
+ {
+  "id": "c6e6e70c318439a0",
+  "title": "Lil B - B.O.R. (Birth Of Rap)",
+  "trueBpm": 136,
+  "confidence": "high",
+  "notes": "Values range from 135 to 136, so the true tempo is likely 135.x to 136. Our detected 135 is at the low end; check for whole-BPM rounding (the analysis code snaps to an integer when within 0.06). The music-video file is 232 s against the 3:54 audio."
+ },
+ {
+  "id": "33b66eaebfb9f2ab",
+  "title": "Moe Shop - WONDER POP",
+  "trueBpm": 160,
+  "confidence": "high",
+  "notes": "Our detected 160 matches. File is 366 s, matching 6:06. Both sources are Spotify-derived."
+ },
+ {
+  "id": "1f46827595857cef",
+  "title": "Polyphia - Playing God",
+  "trueBpm": 137,
+  "confidence": "high",
+  "notes": "Our detected 137 matches. The music-video file is 204 s against the 3:25 audio."
+ },
+ {
+  "id": "9dbb17d6022427ca",
+  "title": "Fall Out Boy - 7 Minutes In Heaven (Atavan Halen)",
+  "trueBpm": 186,
+  "confidence": "high",
+  "notes": "Our detected 124 is exactly 186 x 2/3, a non-octave triplet (dotted-quarter) error. Octave folding will not fix this one. B major. File is 183 s, matching 3:02."
+ },
+ {
+  "id": "d95d9423bf8b99b9",
+  "title": "Fall Out Boy - Our Lawyer Made Us Change The Name Of This Song So We Wouldn't Get Sued",
+  "trueBpm": 154,
+  "confidence": "high",
+  "notes": "Our detected 115.7 is 154 x 3/4 (115.5), the same 3/4 failure as Terraria Ice and I Knew You Were Trouble. A live 2007 version is listed at 77. File is 189 s, matching 3:08."
+ },
+ {
+  "id": "ab944af9e72a4e66",
+  "title": "Fall Out Boy - Of All The Gin Joints In All The World",
+  "trueBpm": 172,
+  "confidence": "high",
+  "notes": "Our detector returned null. A live BBC 2005 version is listed at 170. File is 191 s, matching 3:11."
+ },
+ {
+  "id": "b25599d055b57594",
+  "title": "Drake - Hotline Bling",
+  "trueBpm": 135,
+  "confidence": "high",
+  "notes": "Our detected 135.26 matches. The 1-BPM gap between sources suggests the true value is non-integer, around 135.x."
+ },
+ {
+  "id": "1b7fb0477fb5537f",
+  "title": "Skrillex - Kyoto (ft. Sirah)",
+  "trueBpm": 175,
+  "confidence": "high",
+  "notes": "Drum and bass/dubstep hybrid with a 87.5 half-time feel. Our detected 116.67 is exactly 175 x 2/3, a non-octave triplet error."
+ },
+ {
+  "id": "7bf4576af48ad57c",
+  "title": "Skrillex - Scary Monsters And Nice Sprites",
+  "trueBpm": 140,
+  "confidence": "high",
+  "notes": "Dubstep at 140 (70 half-time). Our detected 120.34 is wrong: about 0.86x, not a simple ratio. File is 245 s, matching 4:03."
+ },
+ {
+  "id": "993e07a56696a67d",
+  "title": "The Smiths - Oscillate Wildly (2011 Remaster)",
+  "trueBpm": 116,
+  "confidence": "high",
+  "notes": "Instrumental. Our detected 116.28 matches. It is a live band recording with no click, so expect slight drift."
+ },
+ {
+  "id": "62e36075e3e5993a",
+  "title": "Tom MacDonald - Pray For The Left",
+  "trueBpm": 136,
+  "confidence": "high",
+  "notes": "Our detected 136 matches. File is 204 s against the 3:35 Spotify version, a different edit."
+ },
+ {
+  "id": "3ab4a871b3334a66",
+  "title": "The Smiths - Heaven Knows I'm Miserable Now",
+  "trueBpm": 114,
+  "confidence": "high",
+  "notes": "Our detected 114.5 is 0.4% fast, enough to drift about a beat per minute against a true 114 grid. Live drums with no click."
+ }
+]

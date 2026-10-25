@@ -11,6 +11,21 @@ A two-deck DJ app for your own music and Creative Commons tracks, with yt-dlp bu
 > order), with a details strip showing exactly what was searched and an **Expand** button for more room. The
 > search problems are written up in `docs/search-issues/`.
 
+## What's new in 0.3.8-beta
+
+- **Sync rebuilt from scratch.** Every synced deck locks to one shared clock (the way Mixxx and Ableton Link do it), and a phase lock keeps them together with tiny, inaudible speed trims, so decks never drift apart. Sync picks ½×, 1× or 2× once (the ratio button: Auto / ½× / 1× / 2×) and never flips it mid-mix.
+- **Synced decks stay synced** through play from pause (a cued deck comes in on the next beat, or the next bar when cued on beat 1), hot cues, seeking, loops, key lock, tempo moves and the space bar. Nudges stick.
+- **New beat detection.** Tempo is read far more reliably (92% of the test library within 1% of the published tempo, up from 66%), beat grids are fitted through the whole track (no drift), open hi-hats no longer put the grid on the off-beat, and the other likely tempo readings are kept. Older grids are re-analysed the first time a track is loaded, unless you set them by hand. Analysis runs in the background.
+- **Engine timing:** audio runs at 48 kHz (was the device's 192 kHz), every start and jump is scheduled sample-exactly, and key-locked decks no longer slip when their tempo changes.
+- **Load over a playing deck**, dials reset on load, and the tempo-range picker is gone from under the slider.
+- Tests: Unknown command: "test"
+
+
+Did you mean this?
+  npm test # Test a package
+To see a list of supported npm commands, run:
+  npm help (analysis + sync clock),  (measures what each deck actually plays: 0 ms error in all 10 scenarios) and  (tempo accuracy vs. ).
+
 ## What's new in 0.3.7-beta
 
 - **Fixed: crash when a new track starts AI stems** (for example when you drag a song in). The AI stem runtime now ships next to the app instead of inside it, so Windows no longer loads its own older onnxruntime.dll by mistake.
