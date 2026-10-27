@@ -673,9 +673,8 @@ function togglePlay(name) {
 
 // A tempo move on a synced deck moves the clock; the other members follow.
 function followTempo(name) {
-  for (const { deck, dropped } of group.setTempoFrom(mixer.decks[name])) {
-    if (dropped) toast(`Deck ${deck.name} left sync: the new tempo is out of its reach.`);
-    else syncTempoSlider(deck.name);
+  for (const { deck } of group.setTempoFrom(mixer.decks[name])) {
+    syncTempoSlider(deck.name);
   }
 }
 
@@ -738,9 +737,11 @@ function doSync(name) {
   const other = syncPartner(name);
   if (!deck.track || !other.track) return toast('Load a track on another deck to sync to.');
   if (!deck.bpm || !other.bpm) return toast('Both tracks need a BPM — try TAP to set one.');
-  let res = group.join(deck, other, { forcedK: deck.forcedK });
-  if (!res.ok && res.rateGap != null && !group.members.size && rescueTempo(deck, other)) res = group.join(deck, other, { forcedK: deck.forcedK });
-  if (!res.ok) return toast(res.reason, 'error');
+  // Far apart (over 25% even at ½× / 2×): a misread tempo is the likely cause, so try the other readings first.
+  const gap = Math.min(...[1, 2, 0.5].map((m) => Math.abs(Math.log((deck.bpm * m) / other.bpm))));
+  if (!group.members.size && gap > Math.log(1.25)) rescueTempo(deck, other);
+  const res = group.join(deck, other, { forcedK: deck.forcedK });
+  if (!res.ok) return toast(res.reason);
   if (deck.bars && other.bars && deck.bars.beatsPerBar !== other.bars.beatsPerBar)
     toast(`Synced beats only — deck ${name} is in ${deck.bars.beatsPerBar}/4, deck ${other.name} in ${other.bars.beatsPerBar}/4.`);
 }

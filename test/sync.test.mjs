@@ -63,7 +63,7 @@ const step = (g, sec) => {
 };
 const errBeats = (a, b) => wrap(a.deckBeat(a.position) - b.deckBeat(b.position)); // same-tempo decks
 
-// 1. Multiplier choice (√2 rule) and rate.
+// 1. Multiplier choice (√2 rule) and rate; even far-apart tempos (174 vs 128) sync at the nearest level.
 {
   const g = mk();
   const lead = new FakeDeck(ctx, 'A', 128);
@@ -73,8 +73,7 @@ const errBeats = (a, b) => wrap(a.deckBeat(a.position) - b.deckBeat(b.position))
     const d = new FakeDeck(ctx, 'B', bpm);
     g.members.clear();
     const res = g.join(d, lead);
-    if (bpm === 174) check('128 vs 174 is out of reach (refused, reason given)', !res.ok && /too far apart/.test(res.reason));
-    else check(`k for ${bpm} vs 128`, res.ok && res.k === k && Math.abs(d.rate - (128 * k) / bpm) < 1e-9, `k=${res.k} rate=${d.rate.toFixed(4)}`);
+    check(`k for ${bpm} vs 128`, res.ok && res.k === k && Math.abs(d.rate - (128 * k) / bpm) < 1e-9, `k=${res.k} rate=${d.rate.toFixed(4)}`);
   }
 }
 

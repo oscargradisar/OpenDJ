@@ -10,7 +10,6 @@ const TICK_MS = 25;
 const MAX_TRIM = 0.004; // ±0.4% speed: inaudible
 const SETTLE_SEC = 1; // phase error time constant
 const RESEEK_SEC = 0.015; // further off than this (heard time): jump back in place instead of trimming
-const MAX_RATE_GAP = 0.25; // a deck may run at most ±25% from its own tempo to join
 
 const wrap = (x, q = 1) => x - q * Math.round(x / q); // into [-q/2, q/2]
 
@@ -57,7 +56,7 @@ export class SyncGroup {
   }
 
   /**
-   * Link `deck` with `partner`. Returns { ok, reason, rateGap }. Nothing about the tracks
+   * Link `deck` with `partner`. Returns { ok, reason }. Nothing about the tracks
    * is saved. A new group takes its tempo and phase from whichever of the two is playing
    * (the partner if both or neither), so pressing Sync never yanks the deck on air.
    */
@@ -90,13 +89,6 @@ export class SyncGroup {
   add(deck, when, forcedK) {
     const k = this.pickK(deck, forcedK);
     const rate = (this.bpm * k) / deck.bpm;
-    if (Math.abs(rate - 1) > MAX_RATE_GAP) {
-      return {
-        ok: false,
-        rateGap: rate - 1,
-        reason: `Deck ${deck.name} would have to run ${rate > 1 ? '+' : ''}${Math.round((rate - 1) * 100)}% to match — tempos too far apart.`,
-      };
-    }
     this.members.set(deck, { k, offset: 0, forcedK, reseeks: [], tempoOnly: false });
     deck.setRate(rate, { silent: true });
     this.place(deck, when);
@@ -146,13 +138,7 @@ export class SyncGroup {
     const moved = [];
     for (const [d, dm] of this.members) {
       if (d === deck) continue;
-      const rate = (this.bpm * dm.k) / d.bpm;
-      if (Math.abs(rate - 1) > MAX_RATE_GAP) {
-        this.members.delete(d); // out of reach now: it keeps its last tempo
-        moved.push({ deck: d, dropped: true });
-        continue;
-      }
-      d.setRate(rate, { silent: true });
+      d.setRate((this.bpm * dm.k) / d.bpm, { silent: true });
       moved.push({ deck: d });
     }
     if (this.members.size < 2) this.members.clear();
