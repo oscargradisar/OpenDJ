@@ -18,6 +18,11 @@ A two-deck DJ app for your own music and Creative Commons tracks, with yt-dlp bu
 - **New beat detection.** Tempo is read far more reliably (92% of the test library within 1% of the published tempo, up from 66%), beat grids are fitted through the whole track (no drift), open hi-hats no longer put the grid on the off-beat, and the other likely tempo readings are kept. Older grids are re-analysed the first time a track is loaded, unless you set them by hand. Analysis runs in the background.
 - **Engine timing:** audio runs at 48 kHz (was the device's 192 kHz), every start and jump is scheduled sample-exactly, and key-locked decks no longer slip when their tempo changes.
 - **Load over a playing deck**, dials reset on load, and the tempo-range picker is gone from under the slider.
+- **Sync listens.** Pressing Sync weighs every tempo reading the analysis found (a triplet or half-time feel can be read at the wrong level) against how firmly each grid sits on the track's hits, and picks the one that needs the least stretching. It then checks where each track's hits really fall: a grid that sits clearly off its music is corrected on joining, and a track that drifts against its own grid (a live drummer) is followed in inaudible steps. Sync also stays on when you load a new track onto a synced deck.
+- **Key Match by ear.** Match compares the notes the two tracks actually play and picks the shift where they agree best, instead of trusting key names.
+- **Accurate keys.** Key detection measures each track's tuning and weighs notes at their true loudness: on a set of songs with known keys it gets 9 of 11 exact and the other 2 one step away (was 4 exact). Keys are found again the first time each track is loaded.
+- **Three-colour waveforms**, as in djay and Serato: bass in red, mids in amber, highs in white, so kicks, snares and hats are easy to tell apart.
+- **Smoother look:** softer panels, rounder corners, quieter controls, tinted hot cues and stem dots; Sync lights up in the deck colour.
 - Tests: `npm test` (analysis + sync clock), `electron --background test/sync-harness/run.cjs` (measures what each deck actually plays: 0 ms error in all 10 scenarios) and `electron --background test/library-eval.cjs` (tempo accuracy against `test/ground-truth.json`).
 
 ## What's new in 0.3.7-beta

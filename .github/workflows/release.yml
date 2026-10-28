@@ -1,7 +1,7 @@
 name: Release builds
 
 # Builds Windows x64, Windows ARM64, macOS (universal) zips and Linux x64 / ARM64 tarballs for a tag and
-# attaches them to that tag's GitHub Release (as a pre-release).
+# attaches them to that tag's GitHub Release, published as the latest release (the website's Download links there).
 # Run it by hand for an existing tag, or it runs on its own when a v* tag is pushed.
 
 on:
@@ -107,9 +107,10 @@ jobs:
         run: |
           node scripts/fetch-ytdlp.mjs darwin arm64
           chmod +x vendor/darwin-arm64/bin/yt-dlp_macos
-          node scripts/vendor-ort.mjs darwin universal
+          # onnxruntime-node ships no Intel Mac binary, so AI stems are Apple Silicon only.
+          node scripts/vendor-ort.mjs darwin arm64
           npx electron-packager . "$APP_NAME" --platform=darwin --arch=universal --out=dist --overwrite \
-            --icon=build/icon.icns --extra-resource=vendor/darwin-arm64/bin --extra-resource=vendor/darwin-universal/ort \
+            --icon=build/icon.icns --extra-resource=vendor/darwin-arm64/bin --extra-resource=vendor/darwin-arm64/ort \
             --app-bundle-id=org.opendj.commonsdj-nogate --app-category-type=public.app-category.music \
             --ignore="^/(dist|out|vendor|test|scripts|node_modules|build|\.github)($|/)" --prune=false
       - name: Check bundle
@@ -120,7 +121,6 @@ jobs:
           ls -la "$app/Contents/Resources" "$app/Contents/Resources/bin"
           lipo -archs "$app/Contents/MacOS/$APP_NAME"
           test -f "$app/Contents/Resources/ort/onnxruntime-node/bin/napi-v6/darwin/arm64/onnxruntime_binding.node"
-          test -f "$app/Contents/Resources/ort/onnxruntime-node/bin/napi-v6/darwin/x64/onnxruntime_binding.node"
           "$ytdlp" --version
       - name: Smoke test (launch for 20 s)
         run: |
@@ -235,9 +235,10 @@ jobs:
           if ! kill -0 $pid 2>/dev/null; then
             echo "App exited early"; cat launch.log; exit 1
           fi
+          cp launch.log running.log
           pkill -f "$dir/opendj" || true; wait $pid || true
-          cat launch.log
-          if grep -Ei "uncaught|fatal" launch.log; then echo "Errors in launch log"; exit 1; fi
+          cat running.log
+          if grep -Ei "uncaught|fatal" running.log; then echo "Errors in launch log"; exit 1; fi
       - name: Tar
         run: |
           version="${TAG#v}"
@@ -305,8 +306,8 @@ jobs:
         run: |
           ls -la assets
           if gh release view "$TAG" > /dev/null 2>&1; then
-            gh release edit "$TAG" --prerelease --notes-file notes.md
+            gh release edit "$TAG" --prerelease=false --latest --notes-file notes.md
           else
-            gh release create "$TAG" --verify-tag --prerelease --title "OpenDJ ${TAG#v}" --notes-file notes.md
+            gh release create "$TAG" --verify-tag --latest --title "OpenDJ ${TAG#v}" --notes-file notes.md
           fi
           gh release upload "$TAG" assets/*.zip assets/*.tar.gz --clobber
