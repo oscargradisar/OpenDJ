@@ -76,6 +76,10 @@ h1 { font-size: clamp(2.6rem, 1.6rem + 4vw, 4.5rem); letter-spacing: -0.03em; li
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .record { animation: none; } }
 
+.support { text-align: center; padding: 72px 0 8px; }
+.support h2 { display: inline-flex; align-items: center; gap: 10px; font-size: 1.6rem; letter-spacing: -0.02em; margin: 0 0 8px; }
+.btn.alt { background: var(--panel); color: var(--text); border: 1px solid var(--line-2); }
+
 .shot { border-radius: var(--radius); border: 1px solid var(--line-2); background: var(--panel); }
 
 footer { padding: 32px 16px 48px; color: var(--muted); font-size: 0.9rem; text-align: center; }
