@@ -2,7 +2,7 @@
 import { Mixer, peakDb, STEMS, AI_STEM_NAMES, XF_SIDE } from './engine.js';
 import { SyncGroup } from './sync.js';
 import { SOUNDS } from './sfx.js';
-import { mixToMono, computeWaveform, overview, analyzeTrack, fitGridAt, detectMeter, keyName, camelot, transposeKey, threeFourSupport, ANALYSIS_VERSION } from './analysis.js';
+import { mixToMono, computeWaveform, overview, analyzeTrack, fitGridAt, detectMeter, keyName, camelot, transposeKey, detectKey, onsetEnvelope, bestKeyShift, beatSalience, ANALYSIS_VERSION, KEY_VERSION } from './analysis.js';
 
 const api = window.cdj;
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -32,7 +32,7 @@ function partnerDeck(name) {
 }
 // Canvas colours. ACCENT matches --a / --b and shade matches --bg in styles.css.
 const ACCENT = { A: [255, 138, 61], B: [66, 182, 255], C: [181, 123, 255], D: [163, 230, 53] };
-const INK = { ink: '237,237,240', shade: '11,11,13', hi: [176, 180, 190] };
+const INK = { ink: '237,237,240', shade: '11,11,13', hi: [176, 180, 190], bands: { low: [240, 62, 98], mid: [255, 178, 82], high: [238, 238, 246] } };
 const HOTCUE_COLORS = ['#ff5c6c', '#42d392', '#8b7bff', '#ffd24d'];
 
 const state = {
@@ -357,7 +357,11 @@ function buildDeck(name) {
     if (type === 'loop' || type === 'load') d.loops.forEach((b) => b.classList.toggle('on', deck.loop?.beats === Number(b.dataset.beats)));
     if (type === 'rate' || type === 'load' || type === 'sync') renderTempo(name);
     if (type === 'rate') followTempo(name);
-    if (type === 'load') group.leave(deck); // a new track starts unlinked
+    if (type === 'load') {
+      // Like djay, Sync stays on across loads: the new track re-joins once it's ready (see loadTrack).
+      deck.resync = group.has(deck);
+      group.leave(deck);
+    }
     if (type === 'sync') syncTempoSlider(name);
     if (type === 'key' || type === 'rate' || type === 'load' || type === 'sync' || type === 'fx') renderKey(name);
     if (type === 'stems' || type === 'load' || type === 'fx') renderStems(name);
@@ -678,33 +682,34 @@ function followTempo(name) {
   }
 }
 
-// A triplet feel can make the detector read a track at ¾ of its real tempo (Ice at 112
-// instead of 150, I Knew You Were Trouble at 115 instead of 154). When two decks are too
-// far apart to sync, try the other tempo readings the analysis found (bpmAlts, each with its
-// own fitted grid) and use the one that brings them in reach, the best-supported first.
-// Tracks analysed before alternatives existed fall back to ×4⁄3, only when the audio clearly backs it.
-const threeFourCache = new Map(); // track id → support for ×4⁄3
-function rescueTempo(a, b) {
-  const gap = (x, y) => Math.min(...[1, 2, 0.5].map((m) => Math.abs(Math.log((x * m) / y)))); // tempo gap, any octave
-  const options = [];
-  for (const [d, o] of [[a, b], [b, a]]) {
-    const alts = d.track.bpmAlts?.length ? d.track.bpmAlts.filter((x) => (x.rel ?? 1) >= 0.6) : [{ bpm: (d.bpm * 4) / 3, offset: null, rel: null }];
-    for (const alt of alts) if (gap(alt.bpm, o.bpm) < Math.log(1.08)) options.push({ d, alt });
-  }
-  if (!options.length) return false;
-  const support = (d) => {
-    if (!threeFourCache.has(d.track.id)) {
-      const ch = [];
-      for (let c = 0; c < d.buffer.numberOfChannels; c++) ch.push(d.buffer.getChannelData(c));
-      threeFourCache.set(d.track.id, threeFourSupport(mixToMono(ch), d.buffer.sampleRate, d.bpm));
+// Which tempo reading to sync on. Besides its tempo, the analyser keeps the other readings it
+// found (bpmAlts: ×4⁄3, ×¾, ×5⁄4 … of it, each with its own fitted grid and how well the audio
+// supports it). A triplet or half-time feel read at the wrong level shows up as a large stretch
+// against the other deck, so Sync weighs every reading by how far it would have to stretch
+// the track against how firmly its grid sits on the track's actual hits (beatSalience), and
+// switches only when another reading saves a clear amount. Grids set by hand stay.
+const ALT_COST = Math.log(1.04); // an alternative reading must save over ~4% of stretch ...
+const FIT_COST = 0.5; // ... plus half its loss in fit (log of main / alternative salience)
+const WEAK_ALT_COST = Math.log(1.08); // without onsets yet: up to 8% more the weaker the analyser found it
+const stretchTo = (bpm, target) => Math.min(...[0.5, 1, 2].map((k) => Math.abs(Math.log((target * k) / bpm))));
+function pickReading(deck, other) {
+  const groupBpm = group.members.size ? group.bpm : null;
+  // With a group running only the joining deck can change; a new pair may switch either track.
+  const sides = groupBpm ? [[deck, groupBpm]] : [[deck, other.bpm * other.rate], [other, deck.bpm * deck.rate]];
+  let best = { cost: stretchTo(deck.bpm, sides[0][1]) };
+  for (const [d, target] of sides) {
+    if (d.track.gridSource === 'user') continue;
+    const main = d.onsets && beatSalience(d.onsets, d.bpm, d.track.beatOffset);
+    for (const alt of d.track.bpmAlts || []) {
+      const fit = main && alt.offset != null ? FIT_COST * Math.log(main / Math.max(beatSalience(d.onsets, alt.bpm, alt.offset), 1e-9)) : WEAK_ALT_COST * Math.max(0, 1 - (alt.rel ?? 0));
+      const cost = stretchTo(alt.bpm, target) + ALT_COST + Math.max(0, fit);
+      if (cost < best.cost) best = { cost, d, alt };
     }
-    return threeFourCache.get(d.track.id);
-  };
-  const score = ({ d, alt }) => alt.rel ?? support(d);
-  const pick = options.reduce((x, y) => (score(y) > score(x) ? y : x));
-  // An analysed alternative needs decent support; the old ×4⁄3 guess needs the audio to clearly back it.
-  if (score(pick) < (pick.alt.rel != null ? 0.6 : 1.1)) return false;
-  const { d, alt } = pick;
+  }
+  if (best.alt) useReading(best.d, best.alt);
+}
+
+function useReading(d, alt) {
   const was = d.bpm;
   const t = d.track;
   const patch = { bpm: Math.round(alt.bpm * 1000) / 1000 };
@@ -716,12 +721,13 @@ function rescueTempo(a, b) {
     patch.downbeat = alt.offset + Math.round((old - alt.offset) / p) * p;
   }
   if (t.beatsPerBar === 3 && alt.bpm / was > 1.2) patch.beatsPerBar = 4; // 3 slow beats were one 4/4 bar
+  // Keep the other readings, with the old one among them, so a later sync can switch back.
+  const r = Math.max(alt.rel ?? 1, 0.01); // supports were relative to the old reading
+  patch.bpmAlts = [{ bpm: was, offset: t.beatOffset, rel: 1 / r }, ...(t.bpmAlts || []).filter((x) => x !== alt).map((x) => ({ ...x, rel: (x.rel ?? 0) / r }))];
   saveTrack(t, patch);
-  threeFourCache.delete(t.id);
   renderTempo(d.name);
   renderLibrary();
-  toast(`Deck ${d.name} was read at the wrong tempo: ${was} → ${patch.bpm} BPM.`);
-  return true;
+  toast(`Deck ${d.name}: using its ${patch.bpm} BPM reading instead of ${was} — the beats fit the other deck with far less stretching.`);
 }
 
 /** The deck a new sync should lock to: a group member if there is a group, else the partner. */
@@ -737,11 +743,10 @@ function doSync(name) {
   const other = syncPartner(name);
   if (!deck.track || !other.track) return toast('Load a track on another deck to sync to.');
   if (!deck.bpm || !other.bpm) return toast('Both tracks need a BPM — try TAP to set one.');
-  // Far apart (over 25% even at ½× / 2×): a misread tempo is the likely cause, so try the other readings first.
-  const gap = Math.min(...[1, 2, 0.5].map((m) => Math.abs(Math.log((deck.bpm * m) / other.bpm))));
-  if (!group.members.size && gap > Math.log(1.25)) rescueTempo(deck, other);
+  if (deck.forcedK == null) pickReading(deck, other); // a forced ratio means you've chosen the reading yourself
   const res = group.join(deck, other, { forcedK: deck.forcedK });
   if (!res.ok) return toast(res.reason);
+  listenAndTell(name);
   if (deck.bars && other.bars && deck.bars.beatsPerBar !== other.bars.beatsPerBar)
     toast(`Synced beats only — deck ${name} is in ${deck.bars.beatsPerBar}/4, deck ${other.name} in ${other.bars.beatsPerBar}/4.`);
 }
@@ -753,7 +758,14 @@ function relink(name) {
   const others = [...group.members.keys()].filter((d) => d !== deck);
   group.leave(deck);
   const res = group.join(deck, others.find((d) => d.playing) || others[0], { forcedK: deck.forcedK });
-  if (!res.ok) toast(res.reason, 'error');
+  if (!res.ok) return toast(res.reason, 'error');
+  listenAndTell(name);
+}
+
+/** After a join: check by ear that the beats really meet, and say so if Sync had to move them. */
+function listenAndTell(name) {
+  const r = group.listen(mixer.decks[name]);
+  if (r) toast(`Deck ${name}: moved ${Math.round(Math.abs(r.sec) * 1000)} ms ${r.sec > 0 ? 'later' : 'earlier'} so its beats land on the other deck's — its grid sat off the music.`);
 }
 
 const fmtSemis = (s) => {
@@ -860,6 +872,18 @@ function matchKey(name) {
   const deck = mixer.decks[name];
   const other = mixer.decks[partnerDeck(name)];
   if (!deck.track || !other.track) return toast('Load a track on another deck to match keys with.');
+  // By ear: the shift where this track's notes agree best with what the other deck plays.
+  const fit = bestKeyShift(deck.track.chroma, other.track.chroma, other.keyOffset, deck.keyOffset);
+  if (fit) {
+    deck.setKeyLock(true);
+    deck.setKeyShift(fit.shift);
+    const pct = (x) => `${Math.round(Math.max(0, x) * 100)}%`;
+    const moved = Math.abs(fit.shift) >= 0.05;
+    toast(`Deck ${name} ${moved ? `shifted ${fmtSemis(fit.shift)} semitones` : 'already sits best in its own key'}: its notes agree with deck ${other.name}'s ${pct(fit.fit)}${moved ? ` (were ${pct(fit.fitNow)})` : ''}. Key lock is on.`);
+    ui[name].keyMatch.classList.add('on');
+    setTimeout(() => ui[name].keyMatch.classList.remove('on'), 500);
+    return;
+  }
   if (deck.track.key == null || deck.track.key < 0 || other.track.key == null || other.track.key < 0) {
     return toast('Both tracks need a detected key to match.');
   }
@@ -1023,9 +1047,12 @@ try {
 } catch (err) {
   console.error('Analysis worker unavailable, analysing on the main thread:', err);
 }
-/** op 'analyze' (tempo, meter, key) or 'fitAt' (re-fit the grid at a given BPM). mono is copied, not consumed. */
+/** op 'analyze' (tempo, meter, key), 'key', 'onsets' or 'fitAt' (re-fit the grid at a given BPM). mono is copied, not consumed. */
 function analyse(op, mono, sampleRate, bpm) {
-  if (!analysisWorker) return Promise.resolve(op === 'analyze' ? analyzeTrack(mono, sampleRate) : fitGridAt(mono, sampleRate, bpm));
+  if (!analysisWorker) {
+    const run = { analyze: analyzeTrack, key: detectKey, onsets: onsetEnvelope, fitAt: fitGridAt }[op];
+    return Promise.resolve(run(mono, sampleRate, bpm));
+  }
   return new Promise((resolve, reject) => {
     const id = ++analysisSeq;
     analysisWaiting.set(id, { resolve, reject });
@@ -1035,6 +1062,8 @@ function analyse(op, mono, sampleRate, bpm) {
 }
 // Grids made by an older analyser are redone on load, unless you set them by hand (TAP, Beat 1, ÷2, ×2 ...).
 const needsAnalysis = (t) => t.bpm == null || (t.gridVersion !== ANALYSIS_VERSION && t.gridSource !== 'user');
+// Keys found by an older detector are found again.
+const needsKey = (t) => t.key == null || t.keyVersion !== KEY_VERSION;
 
 async function loadToDeck(name, trackId) {
   const deck = mixer.decks[name];
@@ -1053,7 +1082,7 @@ async function loadToDeck(name, trackId) {
     const channels = [];
     for (let c = 0; c < buffer.numberOfChannels; c++) channels.push(buffer.getChannelData(c));
     const mono = mixToMono(channels);
-    const wave = computeWaveform(mono, buffer.sampleRate, 150);
+    const wave = computeWaveform(mono, buffer.sampleRate, 300);
 
     const patch = {};
     if (!track.duration) patch.duration = buffer.duration;
@@ -1076,7 +1105,11 @@ async function loadToDeck(name, trackId) {
       } else {
         patch.bpm = 0; // analysed, no clear beat
       }
-      if (track.key == null) patch.key = key ? key.key : -1; // -1: analysed, no clear key
+      if (needsKey(track)) Object.assign(patch, { key: key ? key.key : -1, chroma: key?.chroma ?? null, keyVersion: KEY_VERSION }); // -1: analysed, no clear key
+    } else if (needsKey(track)) {
+      d.artist.textContent = 'Finding the key…';
+      const key = await analyse('key', mono, buffer.sampleRate);
+      Object.assign(patch, { key: key ? key.key : -1, chroma: key?.chroma ?? null, keyVersion: KEY_VERSION });
     }
     if (Object.keys(patch).length) await saveTrack(track, patch);
     if (track.bpm === 0) track.bpm = null;
@@ -1084,10 +1117,20 @@ async function loadToDeck(name, trackId) {
     state.waves[name] = wave;
     state.overviewImg[name] = null;
     deck.load(buffer, track);
+    deck.onsets = null;
+    // The hits Sync listens to: in the background, ready a moment after the track.
+    analyse('onsets', mono, buffer.sampleRate).then((o) => {
+      if (deck.track !== track) return;
+      deck.onsets = o;
+      // Synced before its hits were ready (Sync stays on across loads): listen now, unless it's on air.
+      const quiet = !deck.playing || deck.fader.gain.value * deck.xfade.gain.value < 0.1;
+      if (group.has(deck) && quiet) listenAndTell(name);
+    }).catch((err) => console.error('Onsets unavailable:', err));
     state.knobs[name].forEach((k) => k.set(k.reset)); // gain, EQ and filter back to 12 o'clock
     // A fresh load starts at normal speed; keep the slider in step.
     d.tempo.value = 0;
     deck.setRate(1);
+    if (deck.resync && deck.bpm) doSync(name);
     prepareAiStems(name, track, buffer); // background; DSP stems work meanwhile
   } catch (err) {
     console.error(err);
@@ -1231,18 +1274,60 @@ function fitCanvas(canvas) {
   return false;
 }
 
-function waveColor(name, bass, alpha = 1) {
-  const [r, g, b] = ACCENT[name];
-  // Highs lean toward the theme's high colour, bass toward the deck colour.
-  const [hr, hg, hb] = INK.hi;
-  const k = Math.min(1, bass * 1.4);
-  const rr = Math.round(hr + (r - hr) * k);
-  const gg = Math.round(hg + (g - hg) * k);
-  const bb = Math.round(hb + (b - hb) * k);
-  return `rgba(${rr},${gg},${bb},${alpha})`;
-}
+// Three-colour waveforms (as in djay / Serato): bass, mids and highs each in their own
+// colour over a faint full-signal outline. In each pixel column the loudest band is drawn
+// at the back and the quietest in front (judged over a few pixels, so the order doesn't
+// flicker where two bands are close), so all three always show: a kick reads as a red
+// burst, a snare or voice as amber, hats as a bright core.
+const BANDS = ['low', 'mid', 'high'];
 
-const BUCKETS = 6;
+/**
+ * Draw a waveform across W device pixels. span(x) gives the wave columns under pixel x as
+ * fractional [from, to); zoomed in past one column per pixel, levels are interpolated.
+ */
+function drawBands(ctx, wave, W, mid, half, span) {
+  const n = wave.peak.length;
+  const peak = new Path2D();
+  const layers = [0, 1, 2].map(() => ({ low: new Path2D(), mid: new Path2D(), high: new Path2D() })); // back to front
+  const lv = { peak: new Float32Array(W), low: new Float32Array(W), mid: new Float32Array(W), high: new Float32Array(W) };
+  const v = { peak: 0, low: 0, mid: 0, high: 0 };
+  for (let x = 0; x < W; x++) {
+    const r = span(x);
+    if (!r || r[1] <= 0 || r[0] >= n - 1) continue;
+    if (r[1] - r[0] < 1) {
+      const p = Math.max(0, (r[0] + r[1]) / 2 - 0.5);
+      const i = Math.min(n - 2, Math.floor(p));
+      const f = p - i;
+      for (const k in v) v[k] = wave[k][i] + (wave[k][i + 1] - wave[k][i]) * f;
+    } else {
+      for (const k in v) v[k] = 0;
+      for (let c = Math.max(0, Math.floor(r[0])); c < Math.min(n, Math.ceil(r[1])); c++) {
+        for (const k in v) if (wave[k][c] > v[k]) v[k] = wave[k][c];
+      }
+    }
+    for (const k in v) lv[k][x] = v[k];
+  }
+  const R = 4; // ordering window: ±4 px
+  const sum = { low: 0, mid: 0, high: 0 };
+  for (let x = -R; x < W; x++) {
+    for (const b of BANDS) sum[b] += (lv[b][x + R] || 0) - (lv[b][x - R - 1] || 0);
+    if (x < 0) continue;
+    const hp = lv.peak[x] * half;
+    if (hp >= 0.5) peak.rect(x, mid - hp, 1, hp * 2);
+    BANDS.slice().sort((a, b) => sum[b] - sum[a]).forEach((band, rank) => {
+      const h = lv[band][x] * half;
+      if (h >= 0.5) layers[rank][band].rect(x, mid - h, 1, h * 2);
+    });
+  }
+  ctx.fillStyle = `rgba(${INK.ink},0.1)`;
+  ctx.fill(peak);
+  for (const layer of layers) {
+    for (const band of BANDS) {
+      ctx.fillStyle = `rgb(${INK.bands[band].join(',')})`;
+      ctx.fill(layer[band]);
+    }
+  }
+}
 
 function drawScrolling(name) {
   const canvas = $(`#wave${name}`);
@@ -1270,29 +1355,7 @@ function drawScrolling(name) {
       ctx.fillRect(x0, 0, x1 - x0, H);
     }
 
-    // Bars grouped by colour bucket to keep draw calls low.
-    const paths = Array.from({ length: BUCKETS }, () => new Path2D());
-    for (let x = 0; x < W; x++) {
-      const c0 = Math.floor((t0 + x / pps) * wave.rate);
-      const c1 = Math.max(c0 + 1, Math.floor((t0 + (x + 1) / pps) * wave.rate));
-      if (c1 <= 0 || c0 >= wave.peak.length) continue;
-      let pk = 0;
-      let bs = 0;
-      let n = 0;
-      for (let c = Math.max(0, c0); c < Math.min(c1, wave.peak.length); c++) {
-        if (wave.peak[c] > pk) pk = wave.peak[c];
-        bs += wave.bass[c];
-        n++;
-      }
-      if (!n) continue;
-      const h = Math.max(1, pk * (H / 2 - 3 * dpr));
-      const bucket = Math.min(BUCKETS - 1, Math.floor((bs / n) * BUCKETS));
-      paths[bucket].rect(x, mid - h, 1, h * 2);
-    }
-    for (let b = 0; b < BUCKETS; b++) {
-      ctx.fillStyle = waveColor(name, (b + 0.5) / BUCKETS, 0.95);
-      ctx.fill(paths[b]);
-    }
+    drawBands(ctx, wave, W, mid, H / 2 - 3 * dpr, (x) => [(t0 + x / pps) * wave.rate, (t0 + (x + 1) / pps) * wave.rate]);
 
     // Beat grid
     const t = deck.track;
@@ -1359,13 +1422,7 @@ function buildOverviewImage(name) {
   img.width = W;
   img.height = H;
   const ctx = img.getContext('2d');
-  const ov = overview(wave, W);
-  const mid = H / 2;
-  for (let x = 0; x < W; x++) {
-    const h = Math.max(1, ov.peak[x] * (H / 2 - 2));
-    ctx.fillStyle = waveColor(name, ov.bass[x], 0.9);
-    ctx.fillRect(x, mid - h, 1, h * 2);
-  }
+  drawBands(ctx, overview(wave, W), W, H / 2, H / 2 - 2, (x) => [x, x + 1]);
   return img;
 }
 
@@ -2159,16 +2216,20 @@ function setupKeyboard() {
 
 // Themes. Canvas colours here must match each theme's --a / --b / --bg in styles.css.
 const THEMES = {
-  dark: { A: [255, 138, 61], B: [66, 182, 255], C: [181, 123, 255], D: [163, 230, 53], ink: '237,237,240', shade: '11,11,13', hi: [176, 180, 190] },
-  aloe: { light: true, A: [228, 87, 46], B: [28, 127, 196], C: [123, 79, 214], D: [77, 143, 16], ink: '18,48,28', shade: '251,254,251', hi: [96, 130, 108] },
-  mist: { light: true, A: [212, 98, 47], B: [47, 109, 176], C: [118, 86, 194], D: [79, 132, 32], ink: '30,37,45', shade: '231,233,236', hi: [104, 112, 122] },
-  cherry: {A: [255, 59, 92], B: [255, 163, 192], C: [201, 160, 255], D: [255, 209, 102], ink: '253,238,242', shade: '39,16,26', hi: [214, 168, 182] },
+  dark: { A: [255, 138, 61], B: [66, 182, 255], C: [181, 123, 255], D: [163, 230, 53], ink: '237,237,240', shade: '11,11,13', hi: [176, 180, 190],
+    bands: { low: [240, 62, 98], mid: [255, 178, 82], high: [238, 238, 246] } },
+  aloe: { light: true, A: [228, 87, 46], B: [28, 127, 196], C: [123, 79, 214], D: [77, 143, 16], ink: '18,48,28', shade: '251,254,251', hi: [96, 130, 108],
+    bands: { low: [208, 36, 72], mid: [226, 142, 30], high: [52, 60, 72] } },
+  mist: { light: true, A: [212, 98, 47], B: [47, 109, 176], C: [118, 86, 194], D: [79, 132, 32], ink: '30,37,45', shade: '231,233,236', hi: [104, 112, 122],
+    bands: { low: [196, 42, 76], mid: [212, 134, 34], high: [44, 52, 62] } },
+  cherry: { A: [255, 59, 92], B: [255, 163, 192], C: [201, 160, 255], D: [255, 209, 102], ink: '253,238,242', shade: '39,16,26', hi: [214, 168, 182],
+    bands: { low: [255, 59, 92], mid: [255, 196, 120], high: [255, 225, 235] } },
 };
 function setTheme(name) {
   const t = THEMES[name] ? name : 'dark';
   document.body.dataset.theme = t;
   for (const n of DECKS) ACCENT[n] = THEMES[t][n];
-  Object.assign(INK, { ink: THEMES[t].ink, shade: THEMES[t].shade, hi: THEMES[t].hi, light: !!THEMES[t].light });
+  Object.assign(INK, { ink: THEMES[t].ink, shade: THEMES[t].shade, hi: THEMES[t].hi, bands: THEMES[t].bands, light: !!THEMES[t].light });
   DECKS.forEach((n) => (state.overviewImg[n] = null)); // redraw overviews in the new colours
   $$('.theme-card').forEach((c) => c.setAttribute('aria-checked', String(c.dataset.theme === t)));
   try {

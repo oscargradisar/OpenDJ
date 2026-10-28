@@ -1,4 +1,4 @@
-import { detectTempo, fitGridAt, analyzeTrack, ANALYSIS_VERSION, detectMeter, computeWaveform, overview, mixToMono, beatPhase, detectKey, keyName, camelot, transposeKey } from '../src/renderer/analysis.js';
+import { detectTempo, fitGridAt, analyzeTrack, ANALYSIS_VERSION, detectMeter, computeWaveform, overview, mixToMono, beatPhase, detectKey, keyName, camelot, transposeKey, bestKeyShift, beatSalience, onsetEnvelope } from '../src/renderer/analysis.js';
 let sr = 44100;
 let seed = 1; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
 // Drum voices; each starts its attack at the given sample, so the true beat time is exact.
@@ -174,6 +174,27 @@ for (const c of keyCases) {
   const r = detectKey(drumsOnly, sr);
   console.log(`INFO key of drums only: ${r ? keyName(r.key) + ' conf ' + r.confidence.toFixed(2) : 'none'} (any answer here is a guess; low confidence expected)`);
 }
+{
+  // Match by ear: Eb major against C major should move down 3 (or up to the relative key,
+  // never further); against the other deck playing +0.3 detuned, the fine part follows.
+  const ch = (chords) => detectKey(progression(chords), sr).chroma;
+  const cMaj = ch(keyCases[0].chords), ebMaj = ch(keyCases[3].chords), aMin = ch(keyCases[1].chords);
+  const r1 = bestKeyShift(ebMaj, cMaj);
+  const r2 = bestKeyShift(aMin, cMaj);
+  const r3 = bestKeyShift(ebMaj, cMaj, 0.3);
+  const ok = r1.shift === -3 && r1.fit > r1.fitNow && r2.shift === 0 && Math.abs(r3.shift + 2.7) < 1e-9;
+  if (!ok) fails++;
+  console.log(`${ok ? 'PASS' : 'FAIL'} key match by chroma: Eb→C ${r1.shift} (fit ${r1.fit.toFixed(2)}, was ${r1.fitNow.toFixed(2)}), Am→C ${r2.shift}, detuned ${r3.shift.toFixed(2)}`);
+}
+{
+  // Beat salience: the true grid sits firmer than a ⅔-speed or a shifted one.
+  const m = synth({ bpm: 126, offset: 0.1, seconds: 40, pattern: house, drone: false });
+  const o = onsetEnvelope(m, sr);
+  const t = beatSalience(o, 126, 0.1), slow = beatSalience(o, 84, 0.1), off = beatSalience(o, 126, 0.1 + 30 / 126);
+  const ok = t > slow * 1.1 && t > off * 1.5;
+  if (!ok) fails++;
+  console.log(`${ok ? 'PASS' : 'FAIL'} beat salience: true ${t.toFixed(2)}, ⅔ speed ${slow.toFixed(2)}, ¼ beat off ${off.toFixed(2)}`);
+}
 const camelotChecks = [[0, '8B'], [9 + 12, '8A'], [7, '9B'], [4 + 12, '9A'], [5, '7B'], [6 + 12, '11A'], [3, '5B']];
 for (const [k, want] of camelotChecks) {
   const ok = camelot(k) === want;
@@ -225,5 +246,14 @@ for (const c of meterCases) {
 
 const mono = mixToMono([new Float32Array(sr*10).fill(0.5), new Float32Array(sr*10).fill(-0.5)]);
 const w = computeWaveform(mono, sr); const o = overview(w, 500);
+{
+  // Three-band peaks: a 60 Hz tone lands in low, a 6 kHz tone in high.
+  const tone = (f) => Float32Array.from({ length: sr * 2 }, (_, i) => 0.5 * Math.sin((2 * Math.PI * f * i) / sr));
+  const lo = computeWaveform(tone(60), sr), hi = computeWaveform(tone(6000), sr);
+  const avg = (x) => x.slice(20, -20).reduce((s, v) => s + v, 0) / (x.length - 40);
+  const ok = avg(lo.low) > 3 * avg(lo.high) && avg(hi.high) > 3 * avg(hi.low) && o.low.length === 500;
+  if (!ok) fails++;
+  console.log(`${ok ? 'PASS' : 'FAIL'} waveform bands: 60 Hz low ${avg(lo.low).toFixed(2)} / high ${avg(lo.high).toFixed(2)}, 6 kHz low ${avg(hi.low).toFixed(2)} / high ${avg(hi.high).toFixed(2)}`);
+}
 console.log('waveform cols', w.peak.length, 'rate', w.rate.toFixed(1), 'overview', o.peak.length, 'phase', beatPhase(1.0, 120, 0.25).toFixed(2));
 process.exit(fails ? 1 : 0);

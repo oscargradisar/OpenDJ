@@ -953,3 +953,65 @@ body.decks-4 .mixer { top: 50%; transform: translate(-50%, -50%); }
 body.decks-4 .mixer .xypad { max-width: none; width: 100%; aspect-ratio: 1; }
 body.decks-4 .console:has(#mvCenter:not([hidden])) .mixer .xypad { aspect-ratio: auto; height: calc(var(--mw) - 20px - (var(--mw) - 20px) * 9 / 16 - 10px); }
 .tempo-range { display: none; }
+
+/* ------------------------------------------------------------------ smooth finish
+   Quieter surfaces in the spirit of djay / Serato: soft elevation instead of hairlines,
+   rounder corners, controls that stay out of the way until you need them, and colour
+   only where something is on. Last in the file so it settles the layers above. */
+:root { --radius: 14px; --r-ctl: 9px; --ease: cubic-bezier(0.2, 0.8, 0.2, 1); }
+body:not([data-theme]), body[data-theme='dark'] {
+  --bg: #09090b; --panel: #121215; --panel-2: #1a1a1e; --panel-3: #232328;
+  --muted: #8a8a93; --dim: #55555e;
+}
+.deck, .wave-row, .table-wrap, .cc-item, .cc-info, .xypad, .dlg, .theme-card, .mixer, body.decks-4 .mixer {
+  background-image: none;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px rgba(0, 0, 0, 0.28) !important;
+}
+.deck, .wave-row, .table-wrap, .xypad, .theme-card, .font-card, .mv, .dlg, .mixer, body.decks-4 .mixer { border-radius: var(--radius); }
+.wave-row { background: color-mix(in srgb, var(--panel) 70%, var(--bg)); }
+.overview { background: color-mix(in srgb, var(--panel-2) 60%, var(--bg)); border-radius: 8px; }
+
+/* Controls: flat until hovered, rounder, eased. */
+.pad, .mini, .hc, .loops .lp, .stem, .btn, .field, .fx, .load-btn, .seg, .tab, .zoom button, .chip { border-radius: var(--r-ctl); }
+.chip { border-radius: 999px; }
+.pad, .mini, .hc, .loops .lp, .stem, .btn, .chip, .load-btn, .tab, .seg button, .fx, .sfx-pad {
+  transition: background-color 0.18s var(--ease), color 0.18s var(--ease), box-shadow 0.22s var(--ease), transform 0.12s var(--ease), opacity 0.18s;
+}
+.mini, .loops .lp { background: transparent; color: var(--muted); }
+.mini:hover, .loops .lp:hover { background: var(--panel-2); color: var(--text); }
+.pad { background: var(--panel-2); letter-spacing: 0.1em; font-weight: 600; }
+.pad:hover { background: var(--panel-3); }
+.pad.play.on, .pad.play.on:hover { box-shadow: 0 4px 16px var(--accent-soft); }
+/* Sync is the deck's most important state: lit in the deck colour, like djay. */
+.pad.sync.on, .pad.sync.on:hover { background: var(--accent); color: var(--on-accent); box-shadow: 0 4px 16px var(--accent-soft); }
+.label, .knob .k-label, .lib th { color: var(--dim); letter-spacing: 0.1em; }
+
+/* Hot cues: an empty pad is a quiet slot; a set one is tinted in its colour with a bright edge. */
+.hc { background: color-mix(in srgb, var(--panel-2) 70%, transparent); color: var(--dim); }
+.hc.set[data-i] { background: color-mix(in srgb, var(--hc) 20%, var(--panel)); color: var(--hc); box-shadow: inset 3px 0 0 var(--hc); }
+.hc.set[data-i='0'] { --hc: #ff5c6c; } .hc.set[data-i='1'] { --hc: #42d392; } .hc.set[data-i='2'] { --hc: #8b7bff; } .hc.set[data-i='3'] { --hc: #ffd24d; }
+.hc.set[data-i]:hover { background: color-mix(in srgb, var(--hc) 30%, var(--panel)); }
+
+/* Stems: neutral chips with a dot in the deck colour while they play. */
+.stem { background: var(--panel-2); color: var(--text); font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.stem::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); transition: opacity 0.18s, transform 0.18s var(--ease); }
+.stem:hover { background: var(--panel-3); }
+.stem.off { background: transparent; color: var(--dim); text-decoration: none; box-shadow: inset 0 0 0 1px var(--line-2); }
+.stem.off::before { opacity: 0; transform: scale(0.4); }
+
+.fx { background: var(--panel-2); }
+.fx-fill { background: var(--panel-3); }
+
+/* Library: no rules between rows, just a soft hover. */
+.lib th { background: var(--panel); border-bottom: 0; }
+.lib td { border-bottom: 0; }
+.lib tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--panel-2) 35%, transparent); }
+.lib tr:hover td { background: var(--panel-2); }
+.load-btn { background: var(--panel-2); color: var(--muted); }
+
+/* Deck letter tags: smaller and softer. */
+.wave-tag, .deck-badge { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); }
+.deck-badge { border-radius: 8px; }
+body:is([data-theme='aloe'], [data-theme='mist']) :is(.deck, .wave-row, .table-wrap, .cc-item, .cc-info, .xypad, .dlg, .theme-card, .mixer) {
+  box-shadow: 0 1px 2px rgba(18, 40, 30, 0.06), 0 6px 18px rgba(18, 40, 30, 0.08) !important;
+}

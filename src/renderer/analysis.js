@@ -16,59 +16,74 @@ export function mixToMono(channels) {
 /**
  * Waveform data at `rate` columns per second.
  * peak: max absolute amplitude per column (0..1)
- * bass: share of energy below ~200 Hz per column (0..1), used for colouring
+ * low / mid / high: peak level of each band (below ~200 Hz, between, above ~2.5 kHz) per
+ * column (0..1), for the three-colour waveforms: kicks, snares and voices, hats and cymbals.
  */
 export function computeWaveform(mono, sampleRate, rate = 150) {
   const hop = Math.max(1, Math.round(sampleRate / rate));
   const cols = Math.ceil(mono.length / hop);
   const peak = new Float32Array(cols);
-  const bass = new Float32Array(cols);
+  const low = new Float32Array(cols);
+  const mid = new Float32Array(cols);
+  const high = new Float32Array(cols);
   const a = 1 - Math.exp((-2 * Math.PI * 200) / sampleRate); // one-pole low-pass at 200 Hz
+  const aHi = 1 - Math.exp((-2 * Math.PI * 2500) / sampleRate); // one-pole low-pass at 2.5 kHz
   let lp = 0;
+  let lp2 = 0; // second pole: a steeper bass band, so kicks stand apart from the mids
+  let lpHi = 0;
   for (let c = 0; c < cols; c++) {
     const start = c * hop;
     const end = Math.min(start + hop, mono.length);
     let max = 0;
-    let eAll = 0;
-    let eLow = 0;
+    let pl = 0;
+    let pm = 0;
+    let ph = 0;
     for (let i = start; i < end; i++) {
       const s = mono[i];
       lp += a * (s - lp);
+      lp2 += a * (lp - lp2);
+      lpHi += aHi * (s - lpHi);
       const abs = s < 0 ? -s : s;
       if (abs > max) max = abs;
-      eAll += s * s;
-      eLow += lp * lp;
+      const l = Math.abs(lp2);
+      const h = Math.abs(s - lpHi);
+      const m = Math.abs(lpHi - lp2);
+      if (l > pl) pl = l;
+      if (m > pm) pm = m;
+      if (h > ph) ph = h;
     }
     peak[c] = max > 1 ? 1 : max;
-    bass[c] = eAll > 1e-12 ? Math.min(1, eLow / eAll) : 0;
+    low[c] = Math.min(1, pl);
+    mid[c] = Math.min(1, pm);
+    high[c] = Math.min(1, ph);
   }
-  return { rate: sampleRate / hop, peak, bass };
+  return { rate: sampleRate / hop, peak, low, mid, high };
 }
 
 /** Downsample waveform peaks to a fixed number of columns (for the overview). */
 export function overview(wave, columns) {
   const out = new Float32Array(columns);
-  const outBass = new Float32Array(columns);
+  const bands = { low: new Float32Array(columns), mid: new Float32Array(columns), high: new Float32Array(columns) };
   const n = wave.peak.length;
   for (let c = 0; c < columns; c++) {
     const start = Math.floor((c * n) / columns);
     const end = Math.max(start + 1, Math.floor(((c + 1) * n) / columns));
     let max = 0;
-    let b = 0;
     for (let i = start; i < end && i < n; i++) {
       if (wave.peak[i] > max) max = wave.peak[i];
-      b += wave.bass[i];
+      for (const k in bands) if (wave[k][i] > bands[k][c]) bands[k][c] = wave[k][i];
     }
     out[c] = max;
-    outBass[c] = b / (end - start);
   }
-  return { peak: out, bass: outBass };
+  return { peak: out, ...bands };
 }
 
 const TARGET_ENV_RATE = 200; // onset envelope frames per second (approx.)
 
 /** Bumped when the grid maths change, so the app knows which stored grids to re-analyse. */
 export const ANALYSIS_VERSION = 2;
+/** Bumped when key detection changes, so stored keys (and chroma) are found again. */
+export const KEY_VERSION = 3;
 
 // Seconds added to a measured onset so a kick's attack sample is the beat (frames are
 // timestamped at their centre; the log-energy rise still peaks a little after the attack).
@@ -145,6 +160,31 @@ export function onsetEnvelope(mono, sampleRate) {
   }
   const win = Math.round(ENV_RATE);
   return { env: detrend(env, win), bass: detrend(bass, win), rate: ENV_RATE };
+}
+
+/**
+ * How firmly a beat grid sits on the music: the mean of the strongest onset (bass-weighted)
+ * within ±25 ms of each beat, over the mean onset level, across the middle 80% of the track.
+ * A reading at the wrong level misses beats and scores lower. o = onsetEnvelope(...).
+ */
+export function beatSalience(o, bpm, offset) {
+  const n = o.env.length;
+  if (!(bpm > 0) || !n) return 0;
+  const lv = (i) => (i >= 0 && i < n ? o.bass[i] + 0.5 * o.env[i] : 0);
+  let mean = 0;
+  for (let i = 0; i < n; i++) mean += lv(i) / n;
+  const P = 60 / bpm;
+  const w = Math.round(0.025 * o.rate);
+  const dur = n / o.rate;
+  let s = 0;
+  let k = 0;
+  for (let t = offset + Math.ceil((dur * 0.1 - offset) / P) * P; t < dur * 0.9; t += P, k++) {
+    const c = Math.round(t * o.rate - 0.5);
+    let m = 0;
+    for (let j = -w; j <= w; j++) m = Math.max(m, lv(c + j));
+    s += m;
+  }
+  return k && mean > 0 ? s / k / mean : 0;
 }
 
 function sampleEnv(env, pos) {
@@ -689,13 +729,14 @@ export function fitGridAt(mono, sampleRate, bpm) {
 
 export const PITCH_NAMES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
 
-// Krumhansl–Kessler key profiles (major, minor), tonic first. They describe
-// which notes a key uses; audio also carries each note's overtones (the 3rd
-// harmonic is a fifth up, the 5th a major third up), which drags a raw chroma
-// toward the dominant. So, as in Gómez's audio key-finding, the profiles get
-// the same overtones folded in before they're compared with the audio.
-const KK_MAJOR = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
-const KK_MINOR = [6.33, 2.68, 3.52, 5.38, 2.6, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
+// Key profiles (major, minor), tonic first: Faraldo's EDMA profiles, measured on electronic
+// dance music (what Essentia uses for it), which read pop, rock and game music best here too.
+// They describe which notes a key uses; audio also carries each note's overtones (the 3rd
+// harmonic is a fifth up, the 5th a major third up), which drags a raw chroma toward the
+// dominant. So, as in Gómez's audio key-finding, the profiles get the same overtones
+// folded in before they're compared with the audio.
+const KK_MAJOR = [0.1652, 0.0475, 0.0829, 0.0669, 0.0999, 0.0927, 0.0529, 0.1316, 0.0522, 0.0744, 0.0694, 0.0643];
+const KK_MINOR = [0.1724, 0.04, 0.0761, 0.121, 0.0507, 0.0888, 0.0488, 0.1272, 0.087, 0.0518, 0.0761, 0.0598];
 const HARMONIC_INTERVALS = [0, 0, 7, 0, 4, 7]; // harmonics 1–6, in semitones above the note (mod 12)
 function withOvertones(profile, decay = 0.6) {
   const out = new Array(12).fill(0);
@@ -768,7 +809,12 @@ function fftInPlace(re, im) {
   }
 }
 
-/** 12-bin chroma (pitch-class energy) summed over the track. */
+/**
+ * 12-bin chroma (pitch-class energy) summed over the track. Spectral peaks are placed by
+ * interpolation, the track's tuning (records are often a few cents off A440) is measured
+ * from them first, and each peak counts at its plain magnitude: log-squashing the peaks let
+ * the hiss and overtones of dense mixes flatten the chroma until neighbouring keys tied.
+ */
 export function chromagram(mono, sampleRate, { maxFrames = 600 } = {}) {
   // Work at ~11 kHz: plenty for 55 Hz–2 kHz, and 4× less to transform.
   const dec = Math.max(1, Math.round(sampleRate / 11025));
@@ -786,27 +832,16 @@ export function chromagram(mono, sampleRate, { maxFrames = 600 } = {}) {
   for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N);
   const frames = Math.max(0, Math.floor((len - N) / (N / 4)) + 1);
   const step = Math.max(1, Math.ceil(frames / maxFrames));
-
-  // Each FFT bin → (pitch class, weight). Weight falls off away from the semitone centre.
   const lo = Math.ceil((55 * N) / sr);
-  const hi = Math.min(N / 2 - 1, Math.floor((2000 * N) / sr));
-  const binPc = new Int8Array(hi + 1).fill(-1);
-  const binW = new Float32Array(hi + 1);
-  for (let k = lo; k <= hi; k++) {
-    const midi = 69 + 12 * Math.log2((k * sr) / N / 440);
-    const nearest = Math.round(midi);
-    const d = Math.abs(midi - nearest);
-    if (d < 0.4) {
-      binPc[k] = ((nearest % 12) + 12) % 12;
-      binW[k] = Math.cos((d / 0.4) * (Math.PI / 2));
-    }
-  }
+  const hi = Math.min(N / 2 - 2, Math.floor((2000 * N) / sr));
 
-  const chroma = new Float64Array(12);
+  // Pass 1: every spectral peak as (fractional MIDI note, magnitude, frame).
+  const peaks = [];
   const re = new Float64Array(N);
   const im = new Float64Array(N);
-  const frameChroma = new Float64Array(12);
-  for (let f = 0; f < frames; f += step) {
+  const mag = new Float64Array(N / 2);
+  let frame = 0;
+  for (let f = 0; f < frames; f += step, frame++) {
     const off = f * (N / 4);
     let energy = 0;
     for (let i = 0; i < N; i++) {
@@ -816,19 +851,49 @@ export function chromagram(mono, sampleRate, { maxFrames = 600 } = {}) {
     }
     if (energy < 1e-6) continue; // silence
     fftInPlace(re, im);
-    frameChroma.fill(0);
+    for (let k = lo - 1; k <= hi + 1; k++) mag[k] = Math.hypot(re[k], im[k]);
     for (let k = lo; k <= hi; k++) {
-      if (binPc[k] < 0) continue;
-      const m = Math.sqrt(re[k] * re[k] + im[k] * im[k]);
-      // Only spectral peaks count — keeps noise and drums from flattening the chroma.
-      const pm = Math.sqrt(re[k - 1] * re[k - 1] + im[k - 1] * im[k - 1]);
-      const nm = Math.sqrt(re[k + 1] * re[k + 1] + im[k + 1] * im[k + 1]);
-      if (m > pm && m >= nm) frameChroma[binPc[k]] += Math.log1p(m) * binW[k];
+      const m = mag[k];
+      if (!(m > mag[k - 1] && m >= mag[k + 1])) continue;
+      const a = Math.log(mag[k - 1] + 1e-12);
+      const b = Math.log(m + 1e-12);
+      const c = Math.log(mag[k + 1] + 1e-12);
+      const d = (0.5 * (a - c)) / (a - 2 * b + c || -1e-12); // parabolic peak position
+      peaks.push(69 + 12 * Math.log2(((k + d) * sr) / N / 440), m, frame);
     }
+  }
+
+  // Tuning: magnitude-weighted circular mean of how far the peaks sit from the semitones.
+  let cs = 0;
+  let sn = 0;
+  for (let i = 0; i < peaks.length; i += 3) {
+    const ph = 2 * Math.PI * (peaks[i] - Math.round(peaks[i]));
+    cs += peaks[i + 1] * Math.cos(ph);
+    sn += peaks[i + 1] * Math.sin(ph);
+  }
+  const tuning = Math.atan2(sn, cs) / (2 * Math.PI); // semitones
+
+  // Pass 2: fold the peaks into pitch classes, each frame normalised so loud bars don't dominate.
+  const chroma = new Float64Array(12);
+  const frameChroma = new Float64Array(12);
+  const flush = () => {
     let total = 0;
     for (let c = 0; c < 12; c++) total += frameChroma[c];
     if (total > 0) for (let c = 0; c < 12; c++) chroma[c] += frameChroma[c] / total;
+    frameChroma.fill(0);
+  };
+  let cur = -1;
+  for (let i = 0; i < peaks.length; i += 3) {
+    if (peaks[i + 2] !== cur) {
+      flush();
+      cur = peaks[i + 2];
+    }
+    const midi = peaks[i] - tuning;
+    const nearest = Math.round(midi);
+    const d = Math.abs(midi - nearest);
+    if (d < 0.4) frameChroma[((nearest % 12) + 12) % 12] += peaks[i + 1] * Math.cos((d / 0.4) * (Math.PI / 2)) ** 2;
   }
+  flush();
   return chroma;
 }
 
@@ -855,8 +920,9 @@ function correlate(a, b) {
 }
 
 /**
- * Detect the musical key. Returns { key, confidence, scores } with key 0–23
- * (see keyName / camelot), or null when there's no clear tonal content.
+ * Detect the musical key. Returns { key, confidence, scores, chroma } with key 0–23
+ * (see keyName / camelot) and chroma the track's 12 pitch-class shares (C first), or null
+ * when there's no clear tonal content.
  */
 export function detectKey(mono, sampleRate) {
   if (mono.length / sampleRate < 5) return null;
@@ -877,7 +943,31 @@ export function detectKey(mono, sampleRate) {
   // (those share a scale and are near-ties by nature, and mix fine anyway).
   const runnerUp = scores.find((s) => s.key !== best.key && camelot(s.key).slice(0, -1) !== camelot(best.key).slice(0, -1));
   const confidence = Math.max(0, Math.min(1, (best.r - (runnerUp?.r ?? 0)) * 4));
-  return { key: best.key, confidence, scores: scores.slice(0, 4) };
+  let total = 0;
+  for (const v of chroma) total += v;
+  return { key: best.key, confidence, scores: scores.slice(0, 4), chroma: Array.from(chroma, (v) => Math.round((v / total) * 1e4) / 1e4) };
+}
+
+/** Chroma moved up by s semitones. */
+const rotateChroma = (ch, s) => Array.from({ length: 12 }, (_, i) => ch[(((i - s) % 12) + 12) % 12]);
+
+/**
+ * The key shift that makes one track's notes sit best with another's, by comparing what
+ * the two actually play (their chroma), not their key names. `theirOffset` is how far the
+ * other deck already plays from its own key (semitones, may be fractional); the answer
+ * matches its fine detune too. Small moves win ties: each semitone costs 0.01 in fit.
+ * Returns { shift, fit, fitNow } (fit = chroma correlation, -1…1) or null.
+ */
+export function bestKeyShift(mine, theirs, theirOffset = 0, myOffset = 0) {
+  if (!mine?.length || !theirs?.length) return null;
+  const whole = Math.round(theirOffset);
+  const heard = rotateChroma(theirs, whole);
+  let best = null;
+  for (let s = -6; s <= 6; s++) {
+    const fit = correlate(rotateChroma(mine, s), heard);
+    if (!best || fit - 0.01 * Math.abs(s) > best.fit - 0.01 * Math.abs(best.shift)) best = { shift: s, fit };
+  }
+  return { shift: best.shift + (theirOffset - whole), fit: best.fit, fitNow: correlate(rotateChroma(mine, Math.round(myOffset)), heard) };
 }
 
 /**
@@ -973,36 +1063,6 @@ export function beatPhase(position, bpm, offset) {
   const period = 60 / bpm;
   const p = (position - offset) / period;
   return p - Math.floor(p);
-}
-
-/**
- * How much more the audio supports 4⁄3 × bpm than bpm itself (> 1: the faster one).
- * Uses the onset envelope's autocorrelation with its average removed, which tells
- * metrical levels apart much better than the raw one: a triplet feel can make the
- * detector read ¾ of the real tempo, and this is the check for that.
- */
-export function threeFourSupport(mono, sampleRate, bpm) {
-  const onset = onsetEnvelope(mono, sampleRate);
-  const R = onset.rate;
-  const env = smooth(onset.env, 2);
-  const duration = mono.length / sampleRate;
-  const from = Math.floor(Math.min(30, duration * 0.15) * R);
-  const to = Math.min(env.length, from + Math.floor(90 * R));
-  let mean = 0;
-  for (let f = from; f < to; f++) mean += env[f];
-  mean /= Math.max(1, to - from);
-  const ac = (lag) => {
-    const i = Math.round(lag);
-    let s = 0;
-    for (let f = from; f + i < to; f++) s += (env[f] - mean) * (env[f + i] - mean);
-    return s / Math.max(1, to - from - i);
-  };
-  const score = (b) => {
-    const lag = (60 * R) / b;
-    return ac(lag) + ac(2 * lag) + ac(4 * lag);
-  };
-  const base = score(bpm);
-  return base > 0 ? score((bpm * 4) / 3) / base : 2;
 }
 
 /** Everything the app stores for a track, in one call (what analysis-worker.js runs). */
