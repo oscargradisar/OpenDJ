@@ -111,6 +111,7 @@ jobs:
           node scripts/vendor-ort.mjs darwin arm64
           npx electron-packager . "$APP_NAME" --platform=darwin --arch=universal --out=dist --overwrite \
             --icon=build/icon.icns --extra-resource=vendor/darwin-arm64/bin --extra-resource=vendor/darwin-arm64/ort \
+            --osx-universal.x64ArchFiles="Contents/Resources/ort/**" \
             --app-bundle-id=org.opendj.commonsdj-nogate --app-category-type=public.app-category.music \
             --ignore="^/(dist|out|vendor|test|scripts|node_modules|build|\.github)($|/)" --prune=false
       - name: Check bundle
