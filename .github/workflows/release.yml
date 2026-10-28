@@ -1,6 +1,6 @@
 name: Release builds
 
-# Builds Windows x64, Windows ARM64 and macOS (universal) zips for a tag and
+# Builds Windows x64, Windows ARM64, macOS (universal) zips and Linux x64 / ARM64 tarballs for a tag and
 # attaches them to that tag's GitHub Release (as a pre-release).
 # Run it by hand for an existing tag, or it runs on its own when a v* tag is pushed.
 
@@ -88,8 +88,9 @@ jobs:
         run: |
           node scripts/fetch-ytdlp.mjs darwin arm64
           chmod +x vendor/darwin-arm64/bin/yt-dlp_macos
+          node scripts/vendor-ort.mjs darwin universal
           npx electron-packager . "$APP_NAME" --platform=darwin --arch=universal --out=dist --overwrite \
-            --icon=build/icon.icns --extra-resource=vendor/darwin-arm64/bin \
+            --icon=build/icon.icns --extra-resource=vendor/darwin-arm64/bin --extra-resource=vendor/darwin-universal/ort \
             --app-bundle-id=org.opendj.commonsdj-nogate --app-category-type=public.app-category.music \
             --ignore="^/(dist|out|vendor|test|scripts|node_modules|build|\.github)($|/)" --prune=false
       - name: Check bundle
@@ -99,6 +100,8 @@ jobs:
           chmod +x "$ytdlp"
           ls -la "$app/Contents/Resources" "$app/Contents/Resources/bin"
           lipo -archs "$app/Contents/MacOS/$APP_NAME"
+          test -f "$app/Contents/Resources/ort/onnxruntime-node/bin/napi-v6/darwin/arm64/onnxruntime_binding.node"
+          test -f "$app/Contents/Resources/ort/onnxruntime-node/bin/napi-v6/darwin/x64/onnxruntime_binding.node"
           "$ytdlp" --version
       - name: Smoke test (launch for 20 s)
         run: |
@@ -132,8 +135,103 @@ jobs:
           path: OpenDJ-*.zip
           if-no-files-found: error
 
+  linux:
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      # onnxruntime-node would otherwise fetch the CUDA provider (~GBs) on Linux x64.
+      ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Package
+        run: |
+          node scripts/fetch-ytdlp.mjs linux ${{ matrix.arch }}
+          node scripts/vendor-ort.mjs linux ${{ matrix.arch }}
+          npx electron-packager . "$APP_NAME" --platform=linux --arch=${{ matrix.arch }} --out=dist --overwrite \
+            --icon=assets/icon.png --executable-name=opendj \
+            --extra-resource=vendor/linux-${{ matrix.arch }}/bin \
+            --extra-resource=vendor/linux-${{ matrix.arch }}/ort \
+            --ignore="$PACKAGER_IGNORE" --prune=false
+      - name: Add launcher, icon and desktop entry
+        run: |
+          dir="dist/$APP_NAME-linux-${{ matrix.arch }}"
+          cp assets/icon.png "$dir/opendj.png"
+          # Electron's setuid sandbox helper needs root ownership, which an unpacked tarball
+          # can't keep; fall back to --no-sandbox only when it isn't set up.
+          cat > "$dir/OpenDJ.sh" <<'SH'
+          #!/bin/sh
+          here="$(cd "$(dirname "$0")" && pwd)"
+          if [ "$(stat -c %u "$here/chrome-sandbox" 2>/dev/null)" = 0 ] && [ -u "$here/chrome-sandbox" ]; then
+            exec "$here/opendj" "$@"
+          fi
+          exec "$here/opendj" --no-sandbox "$@"
+          SH
+          chmod +x "$dir/OpenDJ.sh" "$dir/opendj" "$dir/resources/bin/"*
+          cat > "$dir/install-desktop-entry.sh" <<'SH'
+          #!/bin/sh
+          # Adds OpenDJ to your app menu (current user only).
+          here="$(cd "$(dirname "$0")" && pwd)"
+          mkdir -p "$HOME/.local/share/applications"
+          cat > "$HOME/.local/share/applications/opendj.desktop" <<EOF
+          [Desktop Entry]
+          Type=Application
+          Name=OpenDJ
+          Comment=Two-deck DJ app
+          Exec="$here/OpenDJ.sh" %F
+          Icon=$here/opendj.png
+          Categories=AudioVideo;Audio;
+          Terminal=false
+          EOF
+          echo "Added OpenDJ to your app menu."
+          SH
+          chmod +x "$dir/install-desktop-entry.sh"
+      - name: Check bundle
+        run: |
+          dir="dist/$APP_NAME-linux-${{ matrix.arch }}"
+          ls -la "$dir" "$dir/resources" "$dir/resources/bin"
+          test -x "$dir/opendj"
+          test -f "$dir/resources/ort/onnxruntime-node/bin/napi-v6/linux/${{ matrix.arch }}/onnxruntime_binding.node"
+          ls "$dir/resources/bin/"
+          "$dir/resources/bin/"yt-dlp_linux* --version
+      - name: Smoke test (launch for 20 s)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb > /dev/null
+          dir="dist/$APP_NAME-linux-${{ matrix.arch }}"
+          xvfb-run -a "$dir/OpenDJ.sh" --enable-logging > launch.log 2>&1 &
+          pid=$!
+          sleep 20
+          if ! kill -0 $pid 2>/dev/null; then
+            echo "App exited early"; cat launch.log; exit 1
+          fi
+          pkill -f "$dir/opendj" || true; wait $pid || true
+          cat launch.log
+          if grep -Ei "uncaught|fatal" launch.log; then echo "Errors in launch log"; exit 1; fi
+      - name: Tar
+        run: |
+          version="${TAG#v}"
+          cd dist
+          mv "$APP_NAME-linux-${{ matrix.arch }}" "OpenDJ-$version-linux-${{ matrix.arch }}"
+          tar -czf "../OpenDJ-$version-linux-${{ matrix.arch }}.tar.gz" "OpenDJ-$version-linux-${{ matrix.arch }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: OpenDJ-*.tar.gz
+          if-no-files-found: error
+
   release:
-    needs: [windows, mac]
+    needs: [windows, mac, linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -141,7 +239,7 @@ jobs:
           ref: ${{ env.TAG }}
       - uses: actions/download-artifact@v4
         with:
-          pattern: '{win-*,mac-universal}'
+          pattern: '{win-*,mac-universal,linux-*}'
           path: assets
           merge-multiple: true
       - name: Write release notes
@@ -156,6 +254,8 @@ jobs:
           - **Windows x64** (most Windows PCs): \`OpenDJ-$version-win-x64.zip\`
           - **Windows ARM64** (Snapdragon / Windows on ARM): \`OpenDJ-$version-win-arm64.zip\`
           - **macOS** (Apple Silicon and Intel, universal): \`OpenDJ-$version-mac-universal.zip\`
+          - **Linux x64**: \`OpenDJ-$version-linux-x64.tar.gz\`
+          - **Linux ARM64**: \`OpenDJ-$version-linux-arm64.tar.gz\`
 
           AI stem models, onnxruntime and PyTorch are not included; they are optional and set up on your machine.
           DSP stems, decks, DROP, SFX and search work without them.
@@ -172,6 +272,9 @@ jobs:
           \`\`\`
           xattr -dr com.apple.quarantine "/Applications/Commons DJ NoGate.app"
           \`\`\`
+
+          **Linux:** extract the tarball and run **OpenDJ.sh** (\`tar -xzf OpenDJ-$version-linux-x64.tar.gz\` then
+          \`./OpenDJ-$version-linux-x64/OpenDJ.sh\`). Run \`install-desktop-entry.sh\` once to add it to your app menu.
           EOF
           } > notes.md
           cat notes.md
@@ -186,4 +289,4 @@ jobs:
           else
             gh release create "$TAG" --verify-tag --prerelease --title "OpenDJ ${TAG#v}" --notes-file notes.md
           fi
-          gh release upload "$TAG" assets/*.zip --clobber
+          gh release upload "$TAG" assets/*.zip assets/*.tar.gz --clobber
