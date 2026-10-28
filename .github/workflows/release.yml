@@ -11,6 +11,10 @@ on:
         description: Tag to build
         required: true
         default: v0.3.0-beta
+      sha:
+        description: "Commit to tag if the tag doesn't exist yet (default main)"
+        required: false
+        default: main
   push:
     tags: ['v*']
 
@@ -24,7 +28,21 @@ env:
   PACKAGER_IGNORE: ^/(dist|out|vendor|test|scripts|node_modules|\.github)($|/)
 
 jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create the tag if it's missing (manual runs)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh api "repos/$GH_REPO/git/ref/tags/$TAG" > /dev/null 2>&1; then echo "Tag $TAG exists"; exit 0; fi
+          sha=$(gh api "repos/$GH_REPO/commits/${{ inputs.sha || 'main' }}" --jq .sha)
+          gh api "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$sha"
+          echo "Created $TAG at $sha"
+
   windows:
+    needs: tag
     runs-on: windows-latest
     strategy:
       matrix:
@@ -67,6 +85,7 @@ jobs:
           if-no-files-found: error
 
   mac:
+    needs: tag
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -136,6 +155,7 @@ jobs:
           if-no-files-found: error
 
   linux:
+    needs: tag
     strategy:
       matrix:
         include:
