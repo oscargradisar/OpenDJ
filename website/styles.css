@@ -56,6 +56,9 @@ h1 { font-size: clamp(2.6rem, 1.6rem + 4vw, 4.5rem); letter-spacing: -0.03em; li
   transition: transform 0.15s;
 }
 .btn:hover { transform: translateY(-1px); }
+.platforms { color: var(--muted); font-size: 0.9rem; margin: 16px 0 0; }
+.platforms a { color: var(--muted); text-underline-offset: 3px; }
+.platforms a:hover { color: var(--text); }
 
 .record {
   justify-self: center; position: relative; width: min(100%, 280px); aspect-ratio: 1; border-radius: 50%;

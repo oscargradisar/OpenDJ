@@ -23,7 +23,12 @@
       <div class="center">
         <h1>OpenDJ</h1>
         <p class="sub">Free DJ app. Windows and macOS.</p>
-        <a class="btn" href="https://github.com/oscargradisar/OpenDJ/releases/latest">Download</a>
+        <a class="btn" id="dl" href="https://github.com/oscargradisar/OpenDJ/releases/download/v0.3.8-beta/OpenDJ-0.3.8-beta-win-x64.zip" data-asset="win-x64">Download for Windows</a>
+        <p class="platforms">
+          <a href="https://github.com/oscargradisar/OpenDJ/releases/download/v0.3.8-beta/OpenDJ-0.3.8-beta-win-x64.zip" data-asset="win-x64">Windows</a> ·
+          <a href="https://github.com/oscargradisar/OpenDJ/releases/download/v0.3.8-beta/OpenDJ-0.3.8-beta-win-arm64.zip" data-asset="win-arm64">Windows ARM</a> ·
+          <a href="https://github.com/oscargradisar/OpenDJ/releases/download/v0.3.8-beta/OpenDJ-0.3.8-beta-mac-universal.zip" data-asset="mac-universal">macOS</a>
+        </p>
       </div>
       <div class="record b" aria-hidden="true"><span><img src="cherry.svg" alt="" width="22" height="22"></span></div>
     </section>
@@ -38,5 +43,20 @@
   </main>
 
   <footer class="wrap">MIT licensed · <a href="https://github.com/oscargradisar/OpenDJ">Source on GitHub</a></footer>
+
+  <script>
+    // Links above are the current release; this swaps in the newest one so the site never needs editing per release.
+    const dl = document.getElementById('dl');
+    if (/Mac/.test(navigator.platform)) { dl.dataset.asset = 'mac-universal'; dl.textContent = 'Download for macOS'; dl.href = document.querySelector('[data-asset="mac-universal"]').href; }
+    fetch('https://api.github.com/repos/oscargradisar/OpenDJ/releases/latest')
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(rel => {
+        for (const a of document.querySelectorAll('[data-asset]')) {
+          const asset = rel.assets.find(x => x.name.endsWith('-' + a.dataset.asset + '.zip'));
+          if (asset) a.href = asset.browser_download_url;
+        }
+      })
+      .catch(() => {});
+  </script>
 </body>
 </html>
