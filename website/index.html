@@ -40,6 +40,15 @@
       <p class="sub">Free forever. Tips keep it going.</p>
       <a class="btn alt" href="https://paypal.me/OscarGradisar">Donate with PayPal</a>
     </section>
+
+    <!-- No backend: the form opens a pre-filled GitHub issue, so feedback lands in the repo's Issues. -->
+    <form class="support feedback" action="https://github.com/oscargradisar/OpenDJ/issues/new" method="get" target="_blank">
+      <h2>Feedback</h2>
+      <input type="hidden" name="title" value="Feedback from the website">
+      <label class="sr" for="fb">Your feedback</label>
+      <textarea id="fb" name="body" rows="4" required placeholder="Ideas, bugs, anything."></textarea>
+      <button class="btn alt" type="submit">Send on GitHub</button>
+    </form>
   </main>
 
   <footer class="wrap">MIT licensed · <a href="https://github.com/oscargradisar/OpenDJ">Source on GitHub</a></footer>
