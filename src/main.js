@@ -764,7 +764,7 @@ function registerIpc() {
     const t = findTrack(id);
     if (!t) return null;
     const allowed = ['title', 'artist', 'bpm', 'beatOffset', 'beatsPerBar', 'downbeat', 'cues', 'duration', 'key',
-      'gridVersion', 'gridSource', 'bpmConfidence', 'gridRms', 'variable', 'bpmAlts', 'gridPrev'];
+      'gridVersion', 'gridSource', 'keyVersion', 'chroma', 'bpmConfidence', 'gridRms', 'variable', 'bpmAlts', 'gridPrev'];
     for (const key of allowed) if (key in patch) t[key] = patch[key];
     saveLibrary();
     return publicTrack(t);

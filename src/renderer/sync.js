@@ -3,6 +3,9 @@
 // after that a 25 ms loop keeps the phase with tiny speed trims (at most 0.4%, about 7 cents),
 // so decks never drift and a stopping deck never drags the others. Tempo moves on any
 // member move the clock, and the rest follow.
+// The grids are only the analyser's reading, so the group also listens: it compares the
+// decks' actual hits (onset envelopes, bass-weighted so kicks meet kicks) and moves a deck
+// whose grid sits off its music, once on joining and then in small steps while both play.
 
 import { LOOKAHEAD } from './engine.js';
 
@@ -10,6 +13,15 @@ const TICK_MS = 25;
 const MAX_TRIM = 0.004; // ±0.4% speed: inaudible
 const SETTLE_SEC = 1; // phase error time constant
 const RESEEK_SEC = 0.015; // further off than this (heard time): jump back in place instead of trimming
+const EAR_WINDOW = 8; // seconds of music compared
+const EAR_EVERY = 3; // seconds between checks while playing
+const EAR_CONF = 3; // the best shift must stand this many standard deviations above the rest
+const EAR_GAIN = 1.15; // ... and line up this much better than where the grids put it
+const EAR_MIN_SEC = 0.003; // smaller differences aren't worth moving for
+const EAR_LIVE_STEP = 0.008; // a check while playing moves at most this far (heard), so it trims inaudibly
+const EAR_LIVE_MAX = 0.03; // ... and only follows drifts up to this (larger ones are for joining to settle)
+const EAR_SPAN = 0.3; // phase search, in beats either side: past ±⅓ the off-beats would compete
+const EAR_SHIFTS = 128; // trial shifts across one beat
 
 const wrap = (x, q = 1) => x - q * Math.round(x / q); // into [-q/2, q/2]
 
@@ -23,6 +35,7 @@ export class SyncGroup {
     this.t0 = 0; // context time ...
     this.b0 = 0; // ... at which the clock read this beat
     this.parked = true; // no member playing: the next one to start re-anchors the clock
+    this.lastEar = 0;
     this.timer = setInterval(() => this.tick(), TICK_MS);
   }
 
@@ -184,12 +197,129 @@ export class SyncGroup {
     return { at, when: when + wait * beatSec };
   }
 
-  /** After a nudge: keep the offset the user nudged to (Mixxx does the same). */
+  /** After a nudge: keep the offset the user nudged to (Mixxx does the same), and stop second-guessing it by ear. */
   keepOffset(deck) {
     const m = this.members.get(deck);
     if (!m || !deck.playing) return;
     const t = this.ctx.currentTime;
     m.offset = wrap(deck.deckBeat(deck.positionAt(t)) - m.k * this.clockBeat(t));
+    m.manual = true;
+  }
+
+  /** Track position the clock puts `deck` at, at time t (playing or not). */
+  posAt(deck, t) {
+    return deck.bars.downbeat + this.target(deck, t) * deck.beatPeriod;
+  }
+
+  /**
+   * Where `deck`'s own hits fall against its grid over clock times [t0, t1): folds its onset
+   * envelope (bass-weighted, so the kick decides) on its beats and finds the strongest phase
+   * within ±span beats. Each track is judged against itself, so two songs whose kick patterns
+   * differ (syncopation, half-time) never pull each other off. Returns { beats, conf } or null.
+   */
+  selfPhase(deck, t0, t1, span = EAR_SPAN) {
+    const o = deck.onsets;
+    if (!o || !deck.bars) return null;
+    const n = o.env.length;
+    const level = (pos) => {
+      const p = pos * o.rate - 0.5;
+      const i = Math.floor(p);
+      if (i < 0 || i + 1 >= n) return 0;
+      const u = p - i;
+      return o.bass[i] + (o.bass[i + 1] - o.bass[i]) * u + 0.5 * (o.env[i] + (o.env[i + 1] - o.env[i]) * u);
+    };
+    const P = deck.beatPeriod;
+    const shift = (s) => ((2 * s) / EAR_SHIFTS - 1) * span;
+    const scores = new Float64Array(EAR_SHIFTS);
+    const { downbeat } = deck.bars;
+    const b0 = Math.ceil(this.target(deck, t0));
+    const b1 = this.target(deck, t1);
+    let beats = 0;
+    for (let b = b0; b < b1; b++) {
+      const pos = downbeat + b * P;
+      if (pos < 0 || pos * o.rate >= n) continue;
+      beats++;
+      for (let s = 0; s < EAR_SHIFTS; s++) scores[s] += level(pos + shift(s) * P);
+    }
+    if (beats < 6) return null;
+    let best = 0;
+    let mean = 0;
+    for (let s = 0; s < EAR_SHIFTS; s++) {
+      mean += scores[s] / EAR_SHIFTS;
+      if (scores[s] > scores[best]) best = s;
+    }
+    let sd = 0;
+    for (let s = 0; s < EAR_SHIFTS; s++) sd += (scores[s] - mean) ** 2 / EAR_SHIFTS;
+    sd = Math.sqrt(sd);
+    if (!(sd > 0) || best === 0 || best === EAR_SHIFTS - 1) return null; // no peak inside the search
+    const y0 = scores[best - 1];
+    const y2 = scores[best + 1];
+    const d = y0 - 2 * scores[best] + y2;
+    const frac = d < 0 ? (0.5 * (y0 - y2)) / d : 0;
+    return { beats: shift(best + frac), conf: (scores[best] - mean) / sd, gain: scores[best] / Math.max(scores[EAR_SHIFTS / 2], 1e-12) };
+  }
+
+  /**
+   * Listen and correct `deck`'s place against the deck it follows, by where each track's hits
+   * fall against its own grid (selfPhase). Different kick sounds register at slightly different
+   * delays, so across two songs only a gross difference counts: on joining (live = false), one of
+   * an eighth of the faster beat or more, a grid that sits off its music, is moved straight away.
+   * After that each track is compared with itself: if its hits drift against its grid (a live
+   * drummer, a loose grid) while the other's don't, it follows in steps of a few ms.
+   * Returns the shift made ({ beats, sec, conf }) or null.
+   */
+  listen(deck, { live = false } = {}) {
+    const m = this.members.get(deck);
+    if (!m || m.manual || m.tempoOnly) return null;
+    const others = [...this.members.keys()].filter((d) => d !== deck);
+    const ref = others.find((d) => d.playing) || others[0];
+    if (!ref) return null;
+    const mr = this.members.get(ref);
+    const now = this.ctx.currentTime;
+    const [t0, t1] = live ? [now - EAR_WINDOW, now] : [now, now + EAR_WINDOW];
+    const mine = this.selfPhase(deck, t0, t1);
+    const theirs = this.selfPhase(ref, t0, t1);
+    const clear = (p) => p && p.conf >= EAR_CONF;
+    const heard = (beats, d) => (beats * d.beatPeriod) / d.speed;
+    const beat = Math.min(heard(1, deck), heard(1, ref)); // the faster beat, heard seconds
+    let sec;
+    if (!live) {
+      if (!clear(mine) || !clear(theirs)) return null;
+      m.base = mine.beats; // where this track's hits sit: what later checks compare against
+      mr.base ??= theirs.beats;
+      sec = heard(mine.beats - (m.fix || 0), deck) - heard(theirs.beats - (mr.fix || 0), ref); // less what joining already moved
+      if (Math.abs(sec) < beat / 8 || Math.abs(sec) > EAR_SPAN * beat || Math.max(mine.gain, theirs.gain) < EAR_GAIN) return null;
+    } else {
+      if (!clear(mine) || !clear(theirs)) {
+        m.earDir = 0;
+        return null;
+      }
+      if (m.base == null || mr.base == null) {
+        m.base ??= mine.beats;
+        mr.base ??= theirs.beats;
+        return null;
+      }
+      sec = heard(mine.beats - m.base, deck) - heard(theirs.beats - mr.base, ref) - heard(m.drift || 0, deck);
+      if (Math.abs(sec) < EAR_MIN_SEC || Math.abs(sec) > EAR_LIVE_MAX) {
+        m.earDir = 0;
+        return null;
+      }
+      // Only when two checks in a row agree on the direction: a loose grid shouldn't make it hunt.
+      const dir = Math.sign(sec);
+      if (m.earDir !== dir) {
+        m.earDir = dir;
+        return null;
+      }
+      sec = dir * Math.min(Math.abs(sec), EAR_LIVE_STEP);
+    }
+    const beats = (sec * deck.speed) / deck.beatPeriod;
+    m.offset = wrap(m.offset + beats);
+    if (live) m.drift = (m.drift || 0) + beats;
+    else {
+      m.fix = (m.fix || 0) + beats;
+      this.place(deck, now + LOOKAHEAD);
+    }
+    return { beats, sec, conf: Math.min(mine.conf, theirs.conf) };
   }
 
   /** Signed phase error in heard milliseconds (+ = ahead), for the UI. */
@@ -208,6 +338,11 @@ export class SyncGroup {
     }
     if (this.parked) this.anchorOn(playing[0], this.ctx.currentTime);
     const now = this.ctx.currentTime;
+    // Every few seconds, check by ear that the followers' hits still meet the first deck's.
+    if (playing.length > 1 && now - this.lastEar >= EAR_EVERY) {
+      this.lastEar = now;
+      for (const d of playing.slice(1)) if (!d.scratching && d.bendFactor === 1 && d.busyUntil <= now) this.listen(d, { live: true });
+    }
     for (const d of playing) {
       const m = this.members.get(d);
       if (m.tempoOnly || d.scratching || d.bendFactor !== 1 || d.busyUntil > now) continue;

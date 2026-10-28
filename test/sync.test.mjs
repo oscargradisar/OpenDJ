@@ -224,6 +224,45 @@ const errBeats = (a, b) => wrap(a.deckBeat(a.position) - b.deckBeat(b.position))
   check('nudged offset kept', Math.abs(e - 0.02) < 0.0005, `${(e * 1000).toFixed(2)} ms`);
 }
 
+// 10. Listening: a deck whose grid sits ¼ beat off its own kicks is moved so the kicks meet;
+// then a slow slip is pulled back by the live checks, a few ms at a time.
+{
+  // Onset envelopes (200 frames/s) with a hit every beat at the given phase (in beats).
+  const hits = (bpm, phase, seconds = 600) => {
+    const rate = 200, n = seconds * rate, env = new Float32Array(n), P = 60 / bpm;
+    for (let t = phase * P; t < seconds; t += P) for (let k = -3; k <= 3; k++) {
+      const i = Math.round(t * rate - 0.5) + k;
+      if (i >= 0 && i < n) env[i] += Math.exp(-k * k / 2);
+    }
+    return { env, bass: env, rate };
+  };
+  const g = mk();
+  const a = new FakeDeck(ctx, 'A', 128);
+  const b = new FakeDeck(ctx, 'B', 124);
+  a.onsets = hits(128, 0);
+  b.onsets = hits(124, 0.25); // B's kicks land a quarter beat after its grid's beats
+  a.play({ at: 30 });
+  b.play({ at: 61.3 });
+  ctx.currentTime += 0.5;
+  g.join(b, a);
+  const res = g.listen(b);
+  // Where B's kicks sound relative to A's: B's kick phase minus A's beat phase.
+  const kickErr = () => wrap(b.deckBeat(b.position) - 0.25 - a.deckBeat(a.position));
+  check('listen finds the quarter-beat offset', res && Math.abs(res.beats - 0.25) < 0.02, res ? res.beats.toFixed(3) : 'none');
+  ctx.currentTime += 0.1;
+  check('kicks meet after listening', Math.abs(kickErr()) < 0.01, kickErr().toFixed(4));
+  check('no second move once aligned', g.listen(b) === null);
+  // Live: B's music slips 12 ms (as a drifting grid would); the checks pull it back gently.
+  b.onsets = hits(124, 0.25 + 0.012 / (60 / 124));
+  step(g, 30);
+  const ms = kickErr() * 60 / 124 * 1000 - 12;
+  check('live checks follow a 12 ms slip', Math.abs(ms) < 3, `${ms.toFixed(1)} ms left`);
+  check('live checks only trim', b.trims.every((x) => Math.abs(x) <= 0.004 + 1e-12));
+  // A user nudge is respected: no listening after it.
+  g.keepOffset(b);
+  check('no listening after a nudge', g.listen(b) === null);
+}
+
 if (fails) {
   console.log(`${fails} sync test(s) failed`);
   process.exit(1);
