@@ -1,7 +1,7 @@
 name: Release builds
 
 # Builds Windows x64, Windows ARM64 and macOS (universal) zips for a tag and
-# attaches them to that tag's GitHub Release (as a pre-release).
+# attaches them to that tag's GitHub Release, published as the latest release (the website's Download links there).
 # Run it by hand for an existing tag, or it runs on its own when a v* tag is pushed.
 
 on:
@@ -182,8 +182,8 @@ jobs:
         run: |
           ls -la assets
           if gh release view "$TAG" > /dev/null 2>&1; then
-            gh release edit "$TAG" --prerelease --notes-file notes.md
+            gh release edit "$TAG" --prerelease=false --latest --notes-file notes.md
           else
-            gh release create "$TAG" --verify-tag --prerelease --title "OpenDJ ${TAG#v}" --notes-file notes.md
+            gh release create "$TAG" --verify-tag --latest --title "OpenDJ ${TAG#v}" --notes-file notes.md
           fi
           gh release upload "$TAG" assets/*.zip --clobber
