@@ -11,6 +11,14 @@ A two-deck DJ app for your own music and Creative Commons tracks, with yt-dlp bu
 > order), with a details strip showing exactly what was searched and an **Expand** button for more room. The
 > search problems are written up in `docs/search-issues/`.
 
+## What's new in 0.3.9-beta
+
+- Tempo changes and nudges preserve the current playback position. Enabling key processing or loading AI stems no longer starts a cued deck before its scheduled beat.
+- Match compensates the tuning of both recordings, including records recorded slightly sharp or flat. Key analysis refreshes once on first load. Match updates pitch and lock together.
+- Sync respects manually set grids, listens to the section actually playing after a seek, and honours a forced ratio when the playing deck leads. It shows **TEMPO** if it can keep tempo but has lost beat alignment; press twice to retry after checking the grid.
+- Rapid track loads keep the latest selection. Losing window focus releases nudges. Four-deck peak meters work on C and D. An unreadable or damaged library is left untouched and reported at startup.
+- Playback regression checks now cover the real engine, renderer and IPC, with audio alignment tests that fail when timing exceeds their limits. The Windows build tooling no longer includes the vulnerable ZIP extractor.
+
 ## What's new in 0.3.8-beta
 
 - **Sync rebuilt from scratch.** Every synced deck locks to one shared clock (the way Mixxx and Ableton Link do it), and a phase lock keeps them together with tiny, inaudible speed trims, so decks never drift apart. Sync picks ½×, 1× or 2× once (the ratio button: Auto / ½× / 1× / 2×) and never flips it mid-mix.
@@ -116,13 +124,15 @@ YouTube support in yt-dlp needs a JavaScript runtime. Commons DJ provides one by
 
 ## Building from source
 
-Requires Node.js 22+.
+Requires Node.js 22.12 or newer.
 
 ```
 npm install
 npm run fetch-ytdlp     # grabs yt-dlp for this computer, so `npm start` works
 npm start               # run in development
-npm test                # tempo-detection tests
+npm test                # analysis, sync, transport, worker and library regressions
+npm run test:ui          # real UI with a disposable library, no audio output
+npm run test:audio       # recorded deck alignment; takes several minutes
 npm run package:win-arm64
 npm run package:win-x64
 ```

@@ -1,20 +1,22 @@
 {
   "name": "commons-dj-nogate",
   "productName": "Commons DJ NoGate",
-  "version": "0.3.8-beta",
+  "version": "0.3.9-beta",
   "description": "A two-deck DJ app for your own music and Creative Commons tracks, with yt-dlp built in.",
   "main": "src/main.js",
   "license": "MIT",
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node test/analysis.test.mjs && node test/sync.test.mjs",
+    "test": "node test/analysis.test.mjs && node test/sync.test.mjs && node test/engine.test.mjs && node test/app.test.cjs && node test/sync-harness/selftest.cjs",
+    "test:audio": "electron --background test/sync-harness/run.cjs",
+    "test:ui": "electron --background test/reliability.cjs",
     "fetch-ytdlp": "node scripts/fetch-ytdlp.mjs",
-    "package:win-arm64": "node scripts/fetch-ytdlp.mjs win32 arm64 && node scripts/vendor-ort.mjs win32 arm64 && electron-packager . \"Commons DJ NoGate\" --platform=win32 --arch=arm64 --out=dist --overwrite --icon=assets/icon.ico --extra-resource=vendor/win32-arm64/bin --extra-resource=vendor/win32-arm64/ort --ignore=\"^/(dist|out|vendor|test|scripts|node_modules)($|/)\" --prune=false",
-    "package:win-x64": "node scripts/fetch-ytdlp.mjs win32 x64 && node scripts/vendor-ort.mjs win32 x64 && electron-packager . \"Commons DJ NoGate\" --platform=win32 --arch=x64 --out=dist --overwrite --icon=assets/icon.ico --extra-resource=vendor/win32-x64/bin --extra-resource=vendor/win32-x64/ort --ignore=\"^/(dist|out|vendor|test|scripts|node_modules)($|/)\" --prune=false"
+    "package:win-arm64": "node scripts/fetch-ytdlp.mjs win32 arm64 && node scripts/vendor-ort.mjs win32 arm64 && electron-packager . \"Commons DJ NoGate\" --platform=win32 --arch=arm64 --out=dist --overwrite --no-asar --icon=assets/icon.ico --extra-resource=vendor/win32-arm64/bin --extra-resource=vendor/win32-arm64/ort --ignore=\"^/(dist|out|vendor|test|scripts|node_modules)($|/)\" --prune=false",
+    "package:win-x64": "node scripts/fetch-ytdlp.mjs win32 x64 && node scripts/vendor-ort.mjs win32 x64 && electron-packager . \"Commons DJ NoGate\" --platform=win32 --arch=x64 --out=dist --overwrite --no-asar --icon=assets/icon.ico --extra-resource=vendor/win32-x64/bin --extra-resource=vendor/win32-x64/ort --ignore=\"^/(dist|out|vendor|test|scripts|node_modules)($|/)\" --prune=false"
   },
   "devDependencies": {
-    "@electron/packager": "^19.0.0",
+    "@electron/packager": "^20.3.0",
     "electron": "^44.9.1"
   },
   "dependencies": {

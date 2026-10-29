@@ -4,6 +4,7 @@
 // (key shift / key lock / stems) before its EQ.
 
 import SignalsmithStretch from './lib/SignalsmithStretch.mjs';
+import { bestKeyShift } from './analysis.js';
 
 const dbToGain = (db) => Math.pow(10, db / 20);
 
@@ -333,6 +334,7 @@ export class Deck {
   }
 
   setKeyShift(semitones) {
+    if (!Number.isFinite(semitones)) return;
     this.keyShift = Math.max(-12, Math.min(12, Math.round(semitones * 100) / 100));
     this.sendFx();
     this.emit('key');
@@ -345,17 +347,21 @@ export class Deck {
   }
 
   /**
-   * Shift this deck so it plays in the other deck's (heard) key, or its
-   * relative major/minor — same Camelot number, so they mix harmonically.
+   * Match the other deck's heard notes, including both recordings' tuning.
+   * Without chroma, use the key names and their relative major/minor.
    * Turns key lock on, so the match holds when tempo moves. Returns the shift
    * in semitones, or null if either key is unknown.
    */
   matchKeyTo(other) {
     const mine = this.track?.key;
     const theirs = other.track?.key;
-    if (mine == null || mine < 0 || theirs == null || theirs < 0) return null;
+    if (!this.track || !other.track) return null;
+    const myTuning = this.track.tuning || 0;
+    const theirOffset = other.keyOffset + (other.track.tuning || 0);
+    const fit = bestKeyShift(this.track.chroma, other.track.chroma, theirOffset, this.keyOffset + myTuning);
+    if (!fit && (mine == null || mine < 0 || theirs == null || theirs < 0)) return null;
     const relMajor = (k) => (k % 12) + (k >= 12 ? 3 : 0);
-    let s = relMajor(theirs) + other.keyOffset - relMajor(mine);
+    let s = fit ? fit.shift - myTuning : relMajor(theirs) + theirOffset - relMajor(mine) - myTuning;
     s = ((s % 12) + 12) % 12;
     if (s >= 6) s -= 12; // smallest move: −6…+6
     this.keyLock = true;
@@ -409,7 +415,8 @@ export class Deck {
   positionAt(t) {
     if (!this.playing) return this.pausedPos;
     if (t < this.startTime) return this.startPos;
-    let pos = this.startPos + (t - this.startTime) * this.speed;
+    // Integrate the speed actually sent to the sources, including during a tempo change.
+    let pos = this.startPos + (t - this.startTime) * this.appliedSpeed;
     if (this.loop && pos >= this.loop.end) {
       const len = this.loop.end - this.loop.start;
       pos = this.loop.start + ((pos - this.loop.start) % len);
@@ -437,6 +444,10 @@ export class Deck {
     this.buffer = buffer;
     this.track = track;
     this.playing = false;
+    this.bendFactor = 1;
+    this.scratching = false;
+    this.scratchNode?.port.postMessage({ type: 'stop' });
+    this.busyUntil = 0;
     this.pausedPos = 0;
     this.cuePoint = track.beatOffset && track.beatOffset < 2 ? track.beatOffset : 0;
     this.loop = null;
@@ -504,7 +515,7 @@ export class Deck {
 
   /** Restart the sources where the deck already is (after a routing change), without a jump. */
   restartInPlace() {
-    const when = this.ctx.currentTime + LOOKAHEAD;
+    const when = Math.max(this.startTime, this.ctx.currentTime + LOOKAHEAD);
     this.startSource(this.positionAt(when), when);
   }
 
@@ -516,7 +527,7 @@ export class Deck {
     if (!this.buffer || this.playing) return;
     this.mixer.resume();
     if (this.pausedPos >= this.duration - 0.01) this.pausedPos = 0;
-    this.startSource(at ?? this.pausedPos, when);
+    this.startSource(at >= this.duration - 0.01 ? 0 : at ?? this.pausedPos, when);
     this.playing = true;
     this.emit('state');
   }
@@ -578,6 +589,7 @@ export class Deck {
   }
 
   setRate(rate, { silent = false } = {}) {
+    if (!Number.isFinite(rate) || rate <= 0) return;
     this.rate = rate;
     this.applySpeed();
     queueMicrotask(() => this.fxChain.syncGate());
