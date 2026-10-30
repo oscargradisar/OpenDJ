@@ -6,7 +6,13 @@ contextBridge.exposeInMainWorld('cdj', {
     list: () => ipcRenderer.invoke('library:list'),
     update: (id, patch) => ipcRenderer.invoke('library:update', id, patch),
     remove: (id, opts) => ipcRenderer.invoke('library:remove', id, opts),
-    readAudio: (id) => ipcRenderer.invoke('library:readAudio', id),
+    audioUrl: (id) => ipcRenderer.invoke('library:readAudio', id),
+    readAudio: async (id) => {
+      const url = await ipcRenderer.invoke('library:readAudio', id);
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Could not read audio (HTTP ${response.status}).`);
+      return response.arrayBuffer();
+    },
     importDialog: () => ipcRenderer.invoke('library:importDialog'),
     importFiles: (files) =>
       ipcRenderer.invoke(

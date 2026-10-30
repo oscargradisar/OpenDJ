@@ -11,6 +11,21 @@ A two-deck DJ app for your own music and Creative Commons tracks, with yt-dlp bu
 > order), with a details strip showing exactly what was searched and an **Expand** button for more room. The
 > search problems are written up in `docs/search-issues/`.
 
+## What's new in 0.3.10-beta
+
+- Track drops prepare waveforms, beat data and scratch samples in a background worker. Audio reads avoid sending whole files through IPC, and PCM copies yield between small chunks. Failed or stalled preparation reports an error instead of switching to heavy work on the UI thread.
+- Waveforms follow resize notifications instead of forcing page layout on every animation frame.
+- New AI stem separation starts only when you click **Prepare AI stems**, one loaded track at a time. Cached AI stems still load automatically; the instant stem controls work while new AI stems are unprepared.
+- Added a full-length stereo drag-and-drop regression with rapid track replacement, plus worker recovery, timeout and sample-transfer tests. Run it with `npm run test:load`.
+
+## What's new in 0.3.9-beta
+
+- Tempo changes and nudges preserve the current playback position. Enabling key processing or loading AI stems no longer starts a cued deck before its scheduled beat.
+- Match compensates the tuning of both recordings, including records recorded slightly sharp or flat. Key analysis refreshes once on first load. Match updates pitch and lock together.
+- Sync respects manually set grids, listens to the section actually playing after a seek, and honours a forced ratio when the playing deck leads. It shows **TEMPO** if it can keep tempo but has lost beat alignment; press twice to retry after checking the grid.
+- Rapid track loads keep the latest selection. Losing window focus releases nudges. Four-deck peak meters work on C and D. An unreadable or damaged library is left untouched and reported at startup.
+- Playback regression checks now cover the real engine, renderer and IPC, with audio alignment tests that fail when timing exceeds their limits. The Windows build tooling no longer includes the vulnerable ZIP extractor.
+
 ## What's new in 0.3.8-beta
 
 - **Sync rebuilt from scratch.** Every synced deck locks to one shared clock (the way Mixxx and Ableton Link do it), and a phase lock keeps them together with tiny, inaudible speed trims, so decks never drift apart. Sync picks ½×, 1× or 2× once (the ratio button: Auto / ½× / 1× / 2×) and never flips it mid-mix.
@@ -88,7 +103,7 @@ Your library and downloads live in `%APPDATA%\Commons DJ` (the **Open download f
 - **Automatic BPM and beat grid** detection on first load, with ÷2 / ×2 / TAP / BEAT to fix the grid by hand.
 - **Key detection** (Camelot + key name), **key shift** (♭/♯ without changing tempo), **key lock** (tempo without changing pitch) and **MATCH** to put a deck in the other deck's key.
 - **Stems**: turn vocals, drums or instruments on and off per deck in real time (DSP separation, approximate — see `docs/new-features/key-and-stems.md`).
-- **AI stems (prototype)**: if the HT-Demucs model and ONNX Runtime are installed, each track is separated once in the background and the stem buttons switch to the clean AI stems — see `docs/new-features/ai-stems-plan.md`.
+- **AI stems (prototype)**: with the HT-Demucs model and ONNX Runtime installed, click **Prepare AI stems** to process the loaded tracks one at a time. Cached stems load automatically, and the stem buttons switch to the AI stems when ready — see `docs/new-features/ai-stems-plan.md`.
 - **Mixer** with trim, 3-band EQ (kills at the bottom), one-knob filter (left = low-pass, right = high-pass), channel faders with meters, a crossfader with Blend or Cut curves, and a limiter on the master.
 - **Scrolling waveforms** that stay beat-aligned across both decks, plus an overview you can click to seek.
 - **Library** for your own files (drag them into the window or use Add files).
@@ -116,13 +131,16 @@ YouTube support in yt-dlp needs a JavaScript runtime. Commons DJ provides one by
 
 ## Building from source
 
-Requires Node.js 22+.
+Requires Node.js 22.12 or newer.
 
 ```
 npm install
 npm run fetch-ytdlp     # grabs yt-dlp for this computer, so `npm start` works
 npm start               # run in development
-npm test                # tempo-detection tests
+npm test                # analysis, sync, transport, worker and library regressions
+npm run test:ui          # real UI with a disposable library, no audio output
+npm run test:load        # full-length stereo drag-and-drop responsiveness
+npm run test:audio       # recorded deck alignment; takes several minutes
 npm run package:win-arm64
 npm run package:win-x64
 ```

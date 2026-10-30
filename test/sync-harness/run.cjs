@@ -266,6 +266,23 @@ app.on('browser-window-created', (_e, win) => {
       }],
     ];
 
+    SCEN.push(['tempo-before-launch', 'Slow the clock while B waits for its launch bar', async (w, notes) => {
+      await load('A', 'sh128a'); await load('B', 'sh128b');
+      await click('#deckA .play'); await sleep(1500);
+      await syncB(notes);
+      await js(`window.cdjDebug.mixer.decks.B.track.cues[0] = ${T.sh128b.beatOffset}`);
+      await click('#deckB .hc[data-i="0"]');
+      await click('#deckB .play');
+      const old = await js('window.cdjDebug.mixer.decks.B.startTime');
+      await tempo('A', -6);
+      const launch = await js('window.cdjDebug.mixer.decks.B.startTime');
+      if (!(launch > old)) throw new Error('Pending launch did not follow the slower clock');
+      const now = await js('window.cdjDebug.mixer.ctx.currentTime');
+      await sleep(Math.max(0, (launch - now + 6) * 1000));
+      w.push({ label: 'after launch', from: launch + 0.1, to: launch + 6 });
+      return { A: 'sh128a', B: 'sh128b', launch };
+    }]);
+
     const result = { src: SRC, started: new Date().toISOString(), electron: process.versions.electron, scenarios: [] };
     const finish = (code) => {
       // One line per scenario, also printed, for a quick read.
@@ -276,9 +293,11 @@ app.on('browser-window-created', (_e, win) => {
       console.log(result.table.join('\n'));
       result.logs = logs.slice(0, 50);
       result.libraryAfter = JSON.parse(fs.readFileSync(path.join(tmp, 'library.json'), 'utf8')).tracks.map((t) => ({ id: t.id, bpm: t.bpm, beatOffset: t.beatOffset, cues: t.cues }));
+      fs.mkdirSync(path.dirname(OUT), { recursive: true });
       fs.writeFileSync(OUT, JSON.stringify(result, null, 1));
       try { fs.rmSync(wavDir, { recursive: true, force: true }); } catch {} // ~100 MB of WAVs per run
-      app.exit(code);
+      const failed = result.error || result.scenarios.some((s) => s.error || s.status || !(s.align?.n >= 5) || s.align.p95 > 5 || s.align.max > 20);
+      app.exit(code || (failed ? 1 : 0));
     };
     setTimeout(() => { result.error = 'timed out'; finish(2); }, 20 * 60 * 1000);
     try {
@@ -296,9 +315,13 @@ app.on('browser-window-created', (_e, win) => {
           await js('window.__sh.on = false');
           const rec = await js('window.__sh.take()');
           r.tracks = decks;
+          if (decks.launch && rec.B.clicks.some((c) => c.t < decks.launch + 2048 / result.audio.sampleRate - 0.003)) {
+            throw new Error('Deck B sounded before its rescheduled launch');
+          }
           r.clicks = { A: rec.A.clicks.length, B: rec.B.clicks.length };
           r.align = align(rec.A.clicks, rec.B.clicks, windows);
           r.gridVsHeard = { A: gridVsHeard(rec.A.clicks, rec.A.snaps, T[decks.A]), B: gridVsHeard(rec.B.clicks, rec.B.snaps, T[decks.B]) };
+          console.log(`${name}: p95 ${r.align.p95} ms, max ${r.align.max} ms (${r.align.n} clicks)`);
         } catch (e) {
           await js('window.__sh.on = false');
           if (e instanceof NA) { r.status = 'n/a'; r.reason = `control missing: ${e.message}`; } else r.error = String(e.stack || e);

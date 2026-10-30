@@ -132,7 +132,7 @@ sr = 44100;
 
 // --- key detection: chord progressions (triads + bass, with harmonics) over a house beat
 const midiHz = (m) => 440 * 2 ** ((m - 69) / 12);
-function progression(chords, { seconds = 60, bpm = 124 } = {}) {
+function progression(chords, { seconds = 60, bpm = 124, tuning = 0 } = {}) {
   const buf = synth({ bpm, offset: 0.1, seconds, pattern: house, drone: false });
   const bar = (4 * 60) / bpm;
   for (let i = 0; i < buf.length; i++) {
@@ -140,7 +140,7 @@ function progression(chords, { seconds = 60, bpm = 124 } = {}) {
     const ch = chords[Math.floor(t / bar) % chords.length];
     let s = 0;
     ch.forEach((m, j) => {
-      const f = midiHz(j === 0 ? m - 12 : m); // first note an octave down as the bass
+      const f = midiHz((j === 0 ? m - 12 : m) + tuning); // first note an octave down as the bass
       for (let h = 1; h <= 4; h++) s += (Math.sin(2 * Math.PI * f * h * t) * 0.06) / h;
     });
     buf[i] += s;
@@ -194,6 +194,21 @@ for (const c of keyCases) {
   const ok = t > slow * 1.1 && t > off * 1.5;
   if (!ok) fails++;
   console.log(`${ok ? 'PASS' : 'FAIL'} beat salience: true ${t.toFixed(2)}, ⅔ speed ${slow.toFixed(2)}, ¼ beat off ${off.toFixed(2)}`);
+}
+for (const tuning of [-0.3, 0.25]) {
+  const r = detectKey(progression(keyCases[0].chords, { seconds: 30, tuning }), sr);
+  check(r?.key === 0 && Math.abs(r.tuning - tuning) < 0.04, `C major detuned ${tuning}: measured ${r?.tuning.toFixed(3)} semitones`);
+}
+{
+  const tonal = [1, 0, 0.1, 0, 0.8, 0.2, 0, 0.7, 0, 0.2, 0, 0.1];
+  for (const invalid of [[], Array(11).fill(1), Array(12).fill(0), Array(12).fill(1), [NaN, ...tonal.slice(1)], [-1, ...tonal.slice(1)]]) {
+    check(bestKeyShift(invalid, tonal) === null, 'invalid/atonal chroma is not matched');
+  }
+  for (let shift = -6; shift < 6; shift++) {
+    const moved = tonal.map((_, i) => tonal[((i - shift) % 12 + 12) % 12]);
+    const r = bestKeyShift(moved, tonal, 0.2);
+    check(Math.abs(wrap(r.shift + shift - 0.2, 12)) < 1e-9, `chroma match reverses transposition ${shift} and follows detune`);
+  }
 }
 const camelotChecks = [[0, '8B'], [9 + 12, '8A'], [7, '9B'], [4 + 12, '9A'], [5, '7B'], [6 + 12, '11A'], [3, '5B']];
 for (const [k, want] of camelotChecks) {

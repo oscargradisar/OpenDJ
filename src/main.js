@@ -9,6 +9,7 @@ const fs = require('node:fs');
 const fsp = fs.promises;
 const { spawn } = require('node:child_process');
 const crypto = require('node:crypto');
+const { pathToFileURL } = require('node:url');
 
 const AUDIO_EXTENSIONS = ['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus', 'webm', 'aif', 'aiff'];
 
@@ -41,8 +42,12 @@ function initPaths() {
 async function loadLibrary() {
   try {
     const parsed = JSON.parse(await fsp.readFile(paths.library, 'utf8'));
-    library = { version: 1, tracks: Array.isArray(parsed.tracks) ? parsed.tracks : [] };
-  } catch {
+    if (!Array.isArray(parsed?.tracks) || parsed.tracks.some((t) => !t || typeof t.id !== 'string' || !t.id || typeof t.file !== 'string' || !t.file)) {
+      throw new Error('The library contains invalid track data. Restore it from a backup before reopening the app.');
+    }
+    library = { version: 1, tracks: parsed.tracks };
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
     library = { version: 1, tracks: [] };
   }
 }
@@ -764,7 +769,7 @@ function registerIpc() {
     const t = findTrack(id);
     if (!t) return null;
     const allowed = ['title', 'artist', 'bpm', 'beatOffset', 'beatsPerBar', 'downbeat', 'cues', 'duration', 'key',
-      'gridVersion', 'gridSource', 'keyVersion', 'chroma', 'bpmConfidence', 'gridRms', 'variable', 'bpmAlts', 'gridPrev'];
+      'gridVersion', 'gridSource', 'keyVersion', 'chroma', 'tuning', 'bpmConfidence', 'gridRms', 'variable', 'bpmAlts', 'gridPrev'];
     for (const key of allowed) if (key in patch) t[key] = patch[key];
     saveLibrary();
     return publicTrack(t);
@@ -795,8 +800,7 @@ function registerIpc() {
   ipcMain.handle('library:readAudio', async (_e, id) => {
     const t = findTrack(id);
     if (!t) throw new Error('Track not found');
-    const buf = await fsp.readFile(t.file);
-    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    return pathToFileURL(t.file).href;
   });
 
   ipcMain.handle('library:importDialog', async () => {
@@ -890,7 +894,13 @@ function createWindow() {
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   initPaths();
-  await loadLibrary();
+  try {
+    await loadLibrary();
+  } catch (err) {
+    dialog.showErrorBox('Unable to open your library', `Your library could not be read. It has been left untouched.\n\n${paths.library}\n\n${err.message}`);
+    app.quit();
+    return;
+  }
   registerIpc();
   createWindow();
   app.on('activate', () => {

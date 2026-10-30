@@ -263,6 +263,66 @@ const errBeats = (a, b) => wrap(a.deckBeat(a.position) - b.deckBeat(b.position))
   check('no listening after a nudge', g.listen(b) === null);
 }
 
+// A forced ratio also applies when Sync is pressed on the only playing deck.
+{
+  const g = mk();
+  const a = new FakeDeck(ctx, 'A', 128), b = new FakeDeck(ctx, 'B', 128);
+  a.play({ at: 30 });
+  const before = a.position;
+  g.join(a, b, { forcedK: 2 });
+  check('forced ratio on the on-air anchor is respected', g.members.get(a).k === 2 && b.rate === 0.5);
+  check('forced ratio preserves the on-air anchor', a.position === before && a.rate === 1);
+}
+// Moving tempo while a deck waits for its launch beat must re-plan that launch.
+{
+  const g = mk();
+  const a = new FakeDeck(ctx, 'A', 120), b = new FakeDeck(ctx, 'B', 120);
+  a.play({ at: 0 });
+  ctx.currentTime += 0.3;
+  g.join(b, a);
+  b.pausedPos = 0;
+  b.play(g.startPlan(b));
+  const oldStart = b.startTime;
+  a.setRate(1.08);
+  g.setTempoFrom(a);
+  check('tempo change re-plans a pending launch', b.startTime < oldStart && b.startTime > ctx.currentTime);
+  check('re-planned launch lands on the clock', Math.abs(wrap(b.deckBeat(b.startPos) - g.target(b, b.startTime))) < 1e-9);
+}
+// Listening must inspect the section actually playing after a large seek.
+{
+  const g = mk();
+  const a = new FakeDeck(ctx, 'A', 120), b = new FakeDeck(ctx, 'B', 120);
+  a.play({ at: 0 });
+  b.play({ at: 100 });
+  g.join(b, a);
+  const env = new Float32Array(120 * 200);
+  for (let t = 100.125; t < 110; t += 0.5) for (let k = -3; k <= 3; k++) env[Math.round(t * 200 - 0.5) + k] = Math.exp(-k * k / 2);
+  b.onsets = { env, bass: env, rate: 200 };
+  const phase = g.selfPhase(b, ctx.currentTime, ctx.currentTime + 8);
+  check('listening follows the current section after seeking', phase?.conf > 3 && Math.abs(phase.beats - 0.25) < 0.02);
+}
+// Looping or manually positioned grids must not be second-guessed by listening.
+{
+  const g = mk();
+  const a = new FakeDeck(ctx, 'A', 128), b = new FakeDeck(ctx, 'B', 128);
+  g.join(b, a);
+  g.selfPhase = () => { throw new Error('must not inspect this grid'); };
+  b.loop = { beats: 4 };
+  check('listening leaves loops alone', g.listen(b) === null);
+  b.loop = null;
+  b.track.gridSource = 'user';
+  check('listening respects a manual grid', g.listen(b) === null);
+}
+{
+  const g = mk();
+  const a = new FakeDeck(ctx, 'A', 128), b = new FakeDeck(ctx, 'B', 128);
+  a.play({ at: 30 });
+  g.join(b, a);
+  b.pausedPos = b.duration;
+  const plan = g.startPlan(b);
+  check('ended synced track plans a restart from zero', plan.at === 0);
+}
+
 if (fails) {
   console.log(`${fails} sync test(s) failed`);
   process.exit(1);

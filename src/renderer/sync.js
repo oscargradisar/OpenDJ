@@ -80,11 +80,12 @@ export class SyncGroup {
       if (!partner?.bpm || !partner.bars) return { ok: false, reason: 'Load a track with a beat grid on another deck to sync to.' };
       const anchor = deck.playing && !partner.playing ? deck : partner;
       const other = anchor === deck ? partner : deck;
-      this.bpm = anchor.bpm * anchor.rate;
-      this.members.set(anchor, { k: 1, offset: 0, forcedK: null, reseeks: [] });
+      const anchorK = anchor === deck ? forcedK ?? 1 : 1;
+      this.bpm = anchor.bpm * anchor.rate / anchorK;
+      this.members.set(anchor, { k: anchorK, offset: 0, forcedK: anchor === deck ? forcedK : null, reseeks: [] });
       this.anchorOn(anchor, when);
       this.parked = !anchor.playing;
-      const res = this.add(other, when, other === deck ? forcedK : null);
+      const res = this.add(other, when, other === deck ? forcedK : forcedK ? 1 : null);
       if (!res.ok) this.members.clear();
       this.onChange();
       return res;
@@ -154,6 +155,13 @@ export class SyncGroup {
       d.setRate((this.bpm * dm.k) / d.bpm, { silent: true });
       moved.push({ deck: d });
     }
+    // A cued launch must follow the new clock too, before its old launch time arrives.
+    for (const d of this.members.keys()) {
+      if (d.playing && d.startTime > now + LOOKAHEAD) {
+        d.pause();
+        d.play(this.startPlan(d) || {});
+      }
+    }
     if (this.members.size < 2) this.members.clear();
     this.onChange();
     return moved;
@@ -177,6 +185,7 @@ export class SyncGroup {
   startPlan(deck) {
     const m = this.members.get(deck);
     if (!m || !deck.bpm) return null;
+    if (deck.pausedPos >= deck.duration - 0.01) deck.pausedPos = 0;
     const when = this.ctx.currentTime + LOOKAHEAD;
     const others = [...this.members.keys()].some((d) => d !== deck && d.playing);
     if (this.parked || !others) {
@@ -232,8 +241,11 @@ export class SyncGroup {
     const shift = (s) => ((2 * s) / EAR_SHIFTS - 1) * span;
     const scores = new Float64Array(EAR_SHIFTS);
     const { downbeat } = deck.bars;
-    const b0 = Math.ceil(this.target(deck, t0));
-    const b1 = this.target(deck, t1);
+    // Jumps and loops change the section playing; the clock's absolute beat count doesn't.
+    const now = this.ctx.currentTime;
+    const currentBeat = deck.deckBeat(deck.positionAt(now));
+    const b0 = Math.ceil(currentBeat + (t0 - now) * deck.speed / P);
+    const b1 = currentBeat + (t1 - now) * deck.speed / P;
     let beats = 0;
     for (let b = b0; b < b1; b++) {
       const pos = downbeat + b * P;
@@ -274,6 +286,7 @@ export class SyncGroup {
     const others = [...this.members.keys()].filter((d) => d !== deck);
     const ref = others.find((d) => d.playing) || others[0];
     if (!ref) return null;
+    if (deck.loop || ref.loop || deck.track?.gridSource === 'user') return null;
     const mr = this.members.get(ref);
     const now = this.ctx.currentTime;
     const [t0, t1] = live ? [now - EAR_WINDOW, now] : [now, now + EAR_WINDOW];

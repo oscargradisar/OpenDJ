@@ -44,7 +44,7 @@ jobs:
         run: |
           node scripts/fetch-ytdlp.mjs win32 ${{ matrix.arch }}
           node scripts/vendor-ort.mjs win32 ${{ matrix.arch }}
-          npx electron-packager . "$APP_NAME" --platform=win32 --arch=${{ matrix.arch }} --out=dist --overwrite \
+          npx electron-packager . "$APP_NAME" --platform=win32 --arch=${{ matrix.arch }} --out=dist --overwrite --no-asar \
             --icon=assets/icon.ico --extra-resource=vendor/win32-${{ matrix.arch }}/bin \
             --extra-resource=vendor/win32-${{ matrix.arch }}/ort \
             --ignore="$PACKAGER_IGNORE" --prune=false
@@ -88,7 +88,7 @@ jobs:
         run: |
           node scripts/fetch-ytdlp.mjs darwin arm64
           chmod +x vendor/darwin-arm64/bin/yt-dlp_macos
-          npx electron-packager . "$APP_NAME" --platform=darwin --arch=universal --out=dist --overwrite \
+          npx electron-packager . "$APP_NAME" --platform=darwin --arch=universal --out=dist --overwrite --no-asar \
             --icon=build/icon.icns --extra-resource=vendor/darwin-arm64/bin \
             --app-bundle-id=org.opendj.commonsdj-nogate --app-category-type=public.app-category.music \
             --ignore="^/(dist|out|vendor|test|scripts|node_modules|build|\.github)($|/)" --prune=false
