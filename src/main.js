@@ -9,6 +9,7 @@ const fs = require('node:fs');
 const fsp = fs.promises;
 const { spawn } = require('node:child_process');
 const crypto = require('node:crypto');
+const { pathToFileURL } = require('node:url');
 
 const AUDIO_EXTENSIONS = ['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus', 'webm', 'aif', 'aiff'];
 
@@ -799,8 +800,7 @@ function registerIpc() {
   ipcMain.handle('library:readAudio', async (_e, id) => {
     const t = findTrack(id);
     if (!t) throw new Error('Track not found');
-    const buf = await fsp.readFile(t.file);
-    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    return pathToFileURL(t.file).href;
   });
 
   ipcMain.handle('library:importDialog', async () => {

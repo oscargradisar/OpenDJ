@@ -13,7 +13,7 @@ A two-deck DJ app for your own music and Creative Commons tracks, with yt-dlp bu
 
 ## What's new in 0.3.10-beta
 
-- Track drops prepare waveforms, beat data and scratch samples in a background worker. The interface stays responsive while full-length stereo songs load, and failed or stalled preparation reports an error instead of switching to heavy work on the UI thread.
+- Track drops prepare waveforms, beat data and scratch samples in a background worker. Audio reads avoid sending whole files through IPC, and PCM copies yield between small chunks. Failed or stalled preparation reports an error instead of switching to heavy work on the UI thread.
 - New AI stem separation starts only when you click **Prepare AI stems**, one loaded track at a time. Cached AI stems still load automatically; the instant stem controls work while new AI stems are unprepared.
 - Added a full-length stereo drag-and-drop regression with rapid track replacement, plus worker recovery, timeout and sample-transfer tests. Run it with `npm run test:load`.
 

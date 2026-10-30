@@ -1058,9 +1058,17 @@ function startAnalysisWorker() {
 /** Input samples are copied, never detached from a playing AudioBuffer. */
 async function analyse(op, samples, sampleRate, bpm) {
   const copies = [];
-  for (const channel of op === 'prepare' ? samples : [samples]) {
-    copies.push(channel.slice());
-    await new Promise((resolve) => setTimeout(resolve, 0));
+  if (op === 'prepare') {
+    for (let c = 0; c < samples.numberOfChannels; c++) {
+      const copy = new Float32Array(samples.length);
+      for (let offset = 0; offset < copy.length; offset += 262144) {
+        samples.copyFromChannel(copy.subarray(offset, offset + 262144), c, offset);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      copies.push(copy);
+    }
+  } else {
+    copies.push(samples.slice());
   }
   if (!analysisWorker) startAnalysisWorker();
   return new Promise((resolve, reject) => {
@@ -1100,10 +1108,8 @@ async function loadToDeck(name, trackId) {
     if (deck.loadRequest !== request) return;
     const buffer = await mixer.ctx.decodeAudioData(data);
     if (deck.loadRequest !== request) return;
-    const channels = [];
-    for (let c = 0; c < buffer.numberOfChannels; c++) channels.push(buffer.getChannelData(c));
     d.artist.textContent = 'Preparing track…';
-    const prepared = await analyse('prepare', channels, buffer.sampleRate, { analyze: needsAnalysis(track), key: needsKey(track) });
+    const prepared = await analyse('prepare', buffer, buffer.sampleRate, { analyze: needsAnalysis(track), key: needsKey(track) });
     if (deck.loadRequest !== request) return;
 
     const patch = {};

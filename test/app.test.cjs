@@ -5,6 +5,29 @@ const vm = require('node:vm');
 async function main() {
   // Run the real startup reader with a stub filesystem: bad libraries must never become empty libraries.
   const mainSource = fs.readFileSync('src/main.js', 'utf8');
+  {
+    const handlers = new Map();
+    const file = require('node:path').resolve('audio with spaces #1.wav');
+    const pathToFileURL = require('node:url').pathToFileURL;
+    const ctx = vm.createContext({ ipcMain: { handle: (name, fn) => handlers.set(name, fn) },
+      findTrack: id => id === 'track' ? { file } : null, pathToFileURL });
+    vm.runInContext(mainSource.slice(mainSource.indexOf('function registerIpc()'), mainSource.indexOf('// ---------------------------------------------------------------- window')), ctx);
+    ctx.registerIpc();
+    assert.equal(await handlers.get('library:readAudio')(null, 'track'), pathToFileURL(file).href);
+    await assert.rejects(handlers.get('library:readAudio')(null, 'missing'), /Track not found/);
+    let api;
+    const bytes = new ArrayBuffer(4);
+    const electron = { contextBridge: { exposeInMainWorld: (_name, value) => { api = value; } },
+      ipcRenderer: { invoke: async () => pathToFileURL(file).href } };
+    const bridge = vm.createContext({ require: () => electron, fetch: async url => {
+      assert.equal(url, pathToFileURL(file).href);
+      return { ok: true, arrayBuffer: async () => bytes };
+    } });
+    vm.runInContext(fs.readFileSync('src/preload.js', 'utf8'), bridge);
+    assert.equal(await api.library.readAudio('track'), bytes, 'the public audio API still returns bytes');
+    bridge.fetch = async () => ({ ok: false, status: 404 });
+    await assert.rejects(api.library.readAudio('track'), /Could not read audio/);
+  }
   const reader = mainSource.slice(mainSource.indexOf('async function loadLibrary()'), mainSource.indexOf('let saveTimer'));
   for (const value of ['broken JSON', '{}', '{"tracks":[{}]}', '{"tracks":null}']) {
     const ctx = vm.createContext({ paths: { library: 'library.json' }, fsp: { readFile: async () => value } });
@@ -80,7 +103,8 @@ async function main() {
   await assert.rejects(ctx.analyse('analyze', new Float32Array(1), 48000), /clone failed/);
   assert.equal(vm.runInContext('analysisWaiting.size', ctx), 0, 'a failed post does not leak a pending job');
   ctx.worker.postMessage = () => {};
-  const stalled = ctx.analyse('prepare', [new Float32Array(1)], 48000, {});
+  const input = { numberOfChannels: 1, length: 1, copyFromChannel: (out) => { out[0] = 0.5; } };
+  const stalled = ctx.analyse('prepare', input, 48000, {});
   const timedOut = assert.rejects(stalled, /timed out/);
   await new Promise(resolve => setTimeout(resolve, 10));
   timeout();
