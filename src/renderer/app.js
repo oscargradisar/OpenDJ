@@ -1067,7 +1067,7 @@ async function analyse(op, samples, sampleRate, bpm) {
       }
       copies.push(copy);
     }
-  } else {
+  } else if (op !== 'read') {
     copies.push(samples.slice());
   }
   if (!analysisWorker) startAnalysisWorker();
@@ -1076,7 +1076,11 @@ async function analyse(op, samples, sampleRate, bpm) {
     const timer = setTimeout(() => stopAnalysisWorker(new Error('Track preparation timed out. Try loading a shorter file.')), 30000);
     analysisWaiting.set(id, { resolve, reject, timer });
     try {
-      analysisWorker.postMessage({ id, op, mono: copies[0], channels: op === 'prepare' ? copies : undefined, sampleRate, bpm: op === 'prepare' ? undefined : bpm, options: op === 'prepare' ? bpm : undefined }, copies.map((ch) => ch.buffer));
+      analysisWorker.postMessage({
+        id, op, mono: copies[0], channels: op === 'prepare' ? copies : undefined, sampleRate,
+        bpm: op === 'prepare' ? undefined : bpm, options: op === 'prepare' ? bpm : undefined,
+        url: op === 'read' ? samples : undefined,
+      }, copies.map((ch) => ch.buffer));
     } catch (err) {
       clearTimeout(timer);
       analysisWaiting.delete(id);
@@ -1106,9 +1110,7 @@ async function loadToDeck(name, trackId) {
     if (deck.loadRequest !== request) return;
     const url = await api.library.audioUrl(track.id);
     if (deck.loadRequest !== request) return;
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`Could not read audio (HTTP ${response.status}).`);
-    const data = await response.arrayBuffer();
+    const data = await analyse('read', url);
     if (deck.loadRequest !== request) return;
     const buffer = await mixer.ctx.decodeAudioData(data);
     if (deck.loadRequest !== request) return;

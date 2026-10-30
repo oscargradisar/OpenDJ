@@ -3,9 +3,15 @@
 // Reply:   { id, result } or { id, error }
 import { analyzeTrack, fitGridAt, detectKey, onsetEnvelope, mixToMono, computeWaveform } from './analysis.js';
 
-self.onmessage = ({ data: { id, op, mono, channels, sampleRate, bpm, options } }) => {
+self.onmessage = async ({ data: { id, op, mono, channels, sampleRate, bpm, options, url } }) => {
   try {
-    if (op === 'prepare') {
+    if (op === 'read') {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Could not read audio (HTTP ${response.status}).`);
+      const result = await response.arrayBuffer();
+      self.postMessage({ id, result }, [result]);
+    }
+    else if (op === 'prepare') {
       const samples = mixToMono(channels);
       const analysis = options.analyze ? analyzeTrack(samples, sampleRate) : { key: options.key ? detectKey(samples, sampleRate) : null };
       const result = { ...analysis, wave: computeWaveform(samples, sampleRate, 300), onsets: onsetEnvelope(samples, sampleRate), channels };
