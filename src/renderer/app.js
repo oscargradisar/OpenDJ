@@ -1285,10 +1285,21 @@ function buildMixer() {
 
 // ------------------------------------------------------------------ drawing
 
+const canvasSizes = new WeakMap();
+const canvasObserver = new ResizeObserver((entries) => {
+  for (const entry of entries) canvasSizes.set(entry.target, entry.contentRect);
+});
+
 function fitCanvas(canvas) {
+  let size = canvasSizes.get(canvas);
+  if (!size) {
+    size = { width: canvas.clientWidth, height: canvas.clientHeight };
+    canvasSizes.set(canvas, size);
+    canvasObserver.observe(canvas);
+  }
   const dpr = window.devicePixelRatio || 1;
-  const w = Math.max(1, Math.round(canvas.clientWidth * dpr));
-  const h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+  const w = Math.max(1, Math.round(size.width * dpr));
+  const h = Math.max(1, Math.round(size.height * dpr));
   if (canvas.width !== w || canvas.height !== h) {
     canvas.width = w;
     canvas.height = h;
@@ -1367,7 +1378,7 @@ function drawScrolling(name) {
 
   if (wave && deck.buffer) {
     const pos = deck.position;
-    const pps = dpr / secPerCssPx(deck, canvas.clientWidth); // device pixels per track-second
+    const pps = dpr / secPerCssPx(deck, W / dpr); // device pixels per track-second
     const t0 = pos - cx / pps;
 
     // Loop region

@@ -50,6 +50,22 @@ async function main() {
 
   const source = fs.readFileSync('src/renderer/app.js', 'utf8');
   {
+    let observer, reads = 0;
+    const ctx = vm.createContext({ window: { devicePixelRatio: 1 },
+      ResizeObserver: class { constructor(callback) { observer = callback; } observe() {} } });
+    vm.runInContext(source.slice(source.indexOf('const canvasSizes ='), source.indexOf('// Three-colour waveforms')), ctx);
+    const canvas = { width: 0, height: 0, get clientWidth() { reads++; return 100; }, get clientHeight() { reads++; return 50; } };
+    assert.equal(ctx.fitCanvas(canvas), true);
+    assert.equal(ctx.fitCanvas(canvas), false);
+    assert.equal(reads, 2, 'animation frames do not repeatedly force layout');
+    observer([{ target: canvas, contentRect: { width: 120, height: 80 } }]);
+    ctx.window.devicePixelRatio = 2;
+    assert.equal(ctx.fitCanvas(canvas), true);
+    assert.equal(canvas.width, 240);
+    assert.equal(canvas.height, 160);
+    assert.equal(reads, 2, 'resize and display-scale changes use the observed size');
+  }
+  {
     let separated = 0, cached = 0;
     const track = { id: 'test' };
     const ctx = vm.createContext({
