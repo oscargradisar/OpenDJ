@@ -48,6 +48,9 @@ app.on('browser-window-created', (_e, win) => {
     const js = code => win.webContents.executeJavaScript(code);
     try {
       await new Promise(resolve => setTimeout(resolve, 500));
+      win.webContents.debugger.attach('1.3');
+      await win.webContents.debugger.sendCommand('Profiler.enable');
+      await win.webContents.debugger.sendCommand('Profiler.start');
       await js(`window.__dropProbe = { last: performance.now(), maxGap: 0, ticks: 0 }; setInterval(() => {
         const p = window.__dropProbe, now = performance.now(); p.maxGap = Math.max(p.maxGap, now - p.last); p.last = now; p.ticks++;
       }, 10)`);
@@ -66,6 +69,13 @@ app.on('browser-window-created', (_e, win) => {
       assert.equal(loaded, true, 'both full-length drops finish, keeping the latest selection');
       await new Promise(resolve => setTimeout(resolve, 300));
       const probe = await js('window.__dropProbe');
+      const { profile } = await win.webContents.debugger.sendCommand('Profiler.stop');
+      if (probe.maxGap >= 750) {
+        const out = path.resolve(__dirname, '../out');
+        fs.mkdirSync(out, { recursive: true });
+        fs.writeFileSync(path.join(out, 'drop-profile.json'), JSON.stringify(profile));
+        console.log('Load CPU samples:', profile.nodes.filter(n => n.hitCount).sort((a, b) => b.hitCount - a.hitCount).slice(0, 15).map(n => ({ ...n.callFrame, hits: n.hitCount })));
+      }
       assert.ok(probe.ticks > 10 && probe.maxGap < 750, `renderer stalled for ${probe.maxGap.toFixed(0)} ms`);
       assert.equal(separations, 0, 'installed AI must not start new separation on drop');
       assert.equal(await js(`document.querySelector('#aiChip').textContent`), 'Prepare AI stems');
