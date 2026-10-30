@@ -1104,7 +1104,11 @@ async function loadToDeck(name, trackId) {
   try {
     await mixer.resume();
     if (deck.loadRequest !== request) return;
-    const data = await api.library.readAudio(track.id);
+    const url = await api.library.audioUrl(track.id);
+    if (deck.loadRequest !== request) return;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Could not read audio (HTTP ${response.status}).`);
+    const data = await response.arrayBuffer();
     if (deck.loadRequest !== request) return;
     const buffer = await mixer.ctx.decodeAudioData(data);
     if (deck.loadRequest !== request) return;

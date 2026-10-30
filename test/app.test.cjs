@@ -24,6 +24,7 @@ async function main() {
       return { ok: true, arrayBuffer: async () => bytes };
     } });
     vm.runInContext(fs.readFileSync('src/preload.js', 'utf8'), bridge);
+    assert.equal(await api.library.audioUrl('track'), pathToFileURL(file).href, 'normal loads pass only a URL through the bridge');
     assert.equal(await api.library.readAudio('track'), bytes, 'the public audio API still returns bytes');
     bridge.fetch = async () => ({ ok: false, status: 404 });
     await assert.rejects(api.library.readAudio('track'), /Could not read audio/);
