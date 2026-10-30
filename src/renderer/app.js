@@ -1030,6 +1030,7 @@ function setupTap(name) {
 // Full-track preparation stays off the UI thread, including when a worker fails.
 let analysisWorker = null;
 let analysisSeq = 0;
+let trackDecodeQueue = Promise.resolve();
 const analysisWaiting = new Map();
 function stopAnalysisWorker(error) {
   analysisWorker?.terminate();
@@ -1110,9 +1111,17 @@ async function loadToDeck(name, trackId) {
     if (deck.loadRequest !== request) return;
     const url = await api.library.audioUrl(track.id);
     if (deck.loadRequest !== request) return;
-    const data = await analyse('read', url);
-    if (deck.loadRequest !== request) return;
-    const buffer = await mixer.ctx.decodeAudioData(data);
+    // Large decoder completions allocate PCM on the UI thread: don't let several land together.
+    const decoding = trackDecodeQueue.then(async () => {
+      if (deck.loadRequest !== request) return null;
+      const data = await analyse('read', url);
+      if (deck.loadRequest !== request) return null;
+      const decoded = await mixer.ctx.decodeAudioData(data);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return decoded;
+    });
+    trackDecodeQueue = decoding.then(() => {}, () => {});
+    const buffer = await decoding;
     if (deck.loadRequest !== request) return;
     d.artist.textContent = 'Preparing track…';
     const prepared = await analyse('prepare', buffer, buffer.sampleRate, { analyze: needsAnalysis(track), key: needsKey(track) });

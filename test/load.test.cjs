@@ -51,7 +51,13 @@ app.on('browser-window-created', (_e, win) => {
       win.webContents.debugger.attach('1.3');
       await win.webContents.debugger.sendCommand('Profiler.enable');
       await win.webContents.debugger.sendCommand('Profiler.start');
-      await js(`window.__dropProbe = { last: performance.now(), maxGap: 0, ticks: 0 }; setInterval(() => {
+      await js(`window.__dropProbe = { last: performance.now(), maxGap: 0, ticks: 0, decoding: 0, maxDecoding: 0 };
+        const context = window.cdjDebug.mixer.ctx, decode = context.decodeAudioData.bind(context);
+        context.decodeAudioData = async (...args) => {
+          const p = window.__dropProbe; p.decoding++; p.maxDecoding = Math.max(p.maxDecoding, p.decoding);
+          try { return await decode(...args); } finally { p.decoding--; }
+        };
+        setInterval(() => {
         const p = window.__dropProbe, now = performance.now(); p.maxGap = Math.max(p.maxGap, now - p.last); p.last = now; p.ticks++;
       }, 10)`);
       const drop = (deck, id) => js(`{ const data = new DataTransfer(); data.setData('text/x-cdj-track', '${id}');
@@ -77,6 +83,7 @@ app.on('browser-window-created', (_e, win) => {
         console.log('Load CPU samples:', profile.nodes.filter(n => n.hitCount).sort((a, b) => b.hitCount - a.hitCount).slice(0, 15).map(n => ({ ...n.callFrame, hits: n.hitCount })));
       }
       assert.ok(probe.ticks > 10 && probe.maxGap < 750, `renderer stalled for ${probe.maxGap.toFixed(0)} ms`);
+      assert.equal(probe.maxDecoding, 1, 'large decoder completions do not pile up on the UI thread');
       assert.equal(separations, 0, 'installed AI must not start new separation on drop');
       assert.equal(await js(`document.querySelector('#aiChip').textContent`), 'Prepare AI stems');
       assert.equal(await js(`Object.values(window.cdjDebug.mixer.decks).filter(d => d.buffer).every(d => d.buffer.getChannelData(0).byteLength > 0)`), true, 'playback audio stays attached');
