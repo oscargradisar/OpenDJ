@@ -39,6 +39,7 @@ app.on('browser-window-created', (_e, win) => {
       for (let i = 0; i < 60 && !(await js(`document.querySelector('#deckA .t-title').textContent === 'AI test track' && !document.querySelector('#deckA').classList.contains('loading')`)); i++) await sleep(500);
       report.duration = await js(`document.querySelector('#deckA .remain').textContent`);
       await js(`document.querySelector('#deckA .play').click()`);
+      await js(`document.querySelector('#aiChip').click()`); // new separation is explicitly requested
       const t0 = Date.now();
       report.progress = [];
       let ticks = 0;

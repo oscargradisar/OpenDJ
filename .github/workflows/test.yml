@@ -1,5 +1,8 @@
 name: Playback regression tests
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
 permissions:
   contents: read
 jobs:
@@ -15,6 +18,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run test:ui
+      - run: npm run test:load
       - run: npm run test:audio -- --out out/sync.json
       - uses: actions/upload-artifact@v4
         if: always()

@@ -27,6 +27,24 @@ async function main() {
 
   const source = fs.readFileSync('src/renderer/app.js', 'utf8');
   {
+    let separated = 0, cached = 0;
+    const track = { id: 'test' };
+    const ctx = vm.createContext({
+      api: { stems: { status: async () => ({ available: true, ready: false }), separate: async () => { separated++; } } },
+      state: { stemJobs: new Map() }, DECKS: [], mixer: { decks: {} },
+      toModelPcm: async () => [new Float32Array(1), new Float32Array(1)],
+      loadAiStems: async () => { cached++; }, renderStems() {}, toast() {}, console,
+    });
+    vm.runInContext(source.slice(source.indexOf('async function prepareAiStems('), source.indexOf('function matchKey(')), ctx);
+    await ctx.prepareAiStems('A', track, {}, { cachedOnly: true });
+    assert.equal(separated, 0, 'loading cannot start a new AI job');
+    await ctx.prepareAiStems('A', track, {});
+    assert.equal(separated, 1, 'explicit AI preparation still works');
+    ctx.api.stems.status = async () => ({ available: true, ready: true });
+    await ctx.prepareAiStems('A', track, {}, { cachedOnly: true });
+    assert.equal(cached, 1, 'cached AI stems still load automatically');
+  }
+  {
     const a = { name: 'A', playing: true }, b = { name: 'B', playing: false };
     let inspected;
     const ctx = vm.createContext({ mixer: { decks: { A: a, B: b } }, group: {
@@ -37,23 +55,37 @@ async function main() {
     assert.equal(inspected, b, 'joining through the on-air deck corrects the paused partner');
   }
   const workerCode = source.slice(source.indexOf('let analysisWorker ='), source.indexOf('// Grids made by an older'));
+  let timeout;
+  const deadline = {};
   const ctx = vm.createContext({
-    URL, console, analyzeTrack: () => 'fallback', detectKey() {}, onsetEnvelope() {}, fitGridAt() {},
+    URL, console,
+    setTimeout: (fn, ms) => ms === 30000 ? (timeout = fn, deadline) : setTimeout(fn, ms),
+    clearTimeout: id => { if (id !== deadline) clearTimeout(id); },
     Worker: class { constructor() { ctx.worker = this; } postMessage() {} terminate() { this.terminated = true; } },
   });
   vm.runInContext(workerCode.replace('import.meta.url', "'file:///app.js'"), ctx);
   const first = ctx.analyse('analyze', new Float32Array(1), 48000);
   const second = ctx.analyse('key', new Float32Array(1), 48000);
   const rejected = Promise.all([assert.rejects(first, /analysis stopped/), assert.rejects(second, /analysis stopped/)]);
+  await new Promise(resolve => setTimeout(resolve, 10));
   ctx.worker.onerror({ preventDefault() {} });
   await rejected;
   assert.equal(ctx.worker.terminated, true);
-  assert.equal(await ctx.analyse('analyze', new Float32Array(1), 48000), 'fallback');
   assert.equal(vm.runInContext('analysisWaiting.size', ctx), 0);
-  vm.runInContext('analysisWorker = new Worker()', ctx);
+  const restart = ctx.analyse('analyze', new Float32Array(1), 48000);
+  await new Promise(resolve => setTimeout(resolve, 10));
+  ctx.worker.onmessage({ data: { id: 3, result: 'restarted' } });
+  assert.equal(await restart, 'restarted', 'a failed worker is recreated instead of blocking the UI');
   ctx.worker.postMessage = () => { throw new Error('clone failed'); };
   await assert.rejects(ctx.analyse('analyze', new Float32Array(1), 48000), /clone failed/);
   assert.equal(vm.runInContext('analysisWaiting.size', ctx), 0, 'a failed post does not leak a pending job');
+  ctx.worker.postMessage = () => {};
+  const stalled = ctx.analyse('prepare', [new Float32Array(1)], 48000, {});
+  const timedOut = assert.rejects(stalled, /timed out/);
+  await new Promise(resolve => setTimeout(resolve, 10));
+  timeout();
+  await timedOut;
+  assert.equal(vm.runInContext('analysisWaiting.size', ctx), 0, 'a stuck worker cannot leave decks loading forever');
   console.log('all library and analysis-worker regression tests passed');
 }
 main().catch(err => { console.error(err); process.exitCode = 1; });

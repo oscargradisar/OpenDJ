@@ -2,7 +2,7 @@
 import { Mixer, peakDb, STEMS, AI_STEM_NAMES, XF_SIDE } from './engine.js';
 import { SyncGroup } from './sync.js';
 import { SOUNDS } from './sfx.js';
-import { mixToMono, computeWaveform, overview, analyzeTrack, fitGridAt, detectMeter, keyName, camelot, transposeKey, detectKey, onsetEnvelope, beatSalience, ANALYSIS_VERSION, KEY_VERSION } from './analysis.js';
+import { mixToMono, overview, detectMeter, keyName, camelot, transposeKey, beatSalience, ANALYSIS_VERSION, KEY_VERSION } from './analysis.js';
 
 const api = window.cdj;
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -853,13 +853,15 @@ async function toModelPcm(buffer) {
 }
 
 /** After a track loads: use cached AI stems, or separate it once in the background. */
-async function prepareAiStems(name, track, buffer) {
+async function prepareAiStems(name, track, buffer, { cachedOnly = false } = {}) {
   try {
     const st = await api.stems.status(track.id);
     if (!st.available) return; // not installed: DSP stems only
     if (st.ready) return await loadAiStems(name, track.id);
+    if (cachedOnly) return;
     if (state.stemJobs.has(track.id)) return;
     state.stemJobs.set(track.id, { done: 0, total: 0 });
+    state.renderAiChip?.();
     DECKS.forEach(renderStems);
     const [left, right] = await toModelPcm(buffer);
     await api.stems.separate(track.id, left, right);
@@ -872,6 +874,7 @@ async function prepareAiStems(name, track, buffer) {
     toast(`AI stems failed: ${cleanErr(err)} — using DSP stems.`, 'error');
   } finally {
     DECKS.forEach(renderStems);
+    state.renderAiChip?.();
   }
 }
 
@@ -1024,41 +1027,50 @@ function setupTap(name) {
 
 // ------------------------------------------------------------------ loading tracks
 
-// Analysis runs in a worker so loading never stalls the decks; the main thread is the fallback.
+// Full-track preparation stays off the UI thread, including when a worker fails.
 let analysisWorker = null;
 let analysisSeq = 0;
 const analysisWaiting = new Map();
-try {
+function stopAnalysisWorker(error) {
+  analysisWorker?.terminate();
+  analysisWorker = null;
+  for (const job of analysisWaiting.values()) {
+    clearTimeout(job.timer);
+    job.reject(error);
+  }
+  analysisWaiting.clear();
+}
+function startAnalysisWorker() {
   analysisWorker = new Worker(new URL('./analysis-worker.js', import.meta.url), { type: 'module' });
   analysisWorker.onmessage = ({ data }) => {
     const job = analysisWaiting.get(data.id);
     analysisWaiting.delete(data.id);
+    if (job) clearTimeout(job.timer);
     if (data.error) job?.reject(new Error(data.error));
     else job?.resolve(data.result);
   };
   analysisWorker.onerror = (event) => {
     event.preventDefault();
-    analysisWorker.terminate();
-    analysisWorker = null;
-    for (const job of analysisWaiting.values()) job.reject(new Error('Track analysis stopped. Try loading the track again.'));
-    analysisWaiting.clear();
+    stopAnalysisWorker(new Error('Track analysis stopped. Try loading the track again.'));
   };
-} catch (err) {
-  console.error('Analysis worker unavailable, analysing on the main thread:', err);
+  analysisWorker.onmessageerror = () => stopAnalysisWorker(new Error('Track analysis could not be read. Try loading the track again.'));
 }
-/** op 'analyze' (tempo, meter, key), 'key', 'onsets' or 'fitAt' (re-fit the grid at a given BPM). mono is copied, not consumed. */
-function analyse(op, mono, sampleRate, bpm) {
-  if (!analysisWorker) {
-    const run = { analyze: analyzeTrack, key: detectKey, onsets: onsetEnvelope, fitAt: fitGridAt }[op];
-    return Promise.resolve(run(mono, sampleRate, bpm));
+/** Input samples are copied, never detached from a playing AudioBuffer. */
+async function analyse(op, samples, sampleRate, bpm) {
+  const copies = [];
+  for (const channel of op === 'prepare' ? samples : [samples]) {
+    copies.push(channel.slice());
+    await new Promise((resolve) => setTimeout(resolve, 0));
   }
+  if (!analysisWorker) startAnalysisWorker();
   return new Promise((resolve, reject) => {
     const id = ++analysisSeq;
-    analysisWaiting.set(id, { resolve, reject });
-    const copy = mono.slice();
+    const timer = setTimeout(() => stopAnalysisWorker(new Error('Track preparation timed out. Try loading a shorter file.')), 30000);
+    analysisWaiting.set(id, { resolve, reject, timer });
     try {
-      analysisWorker.postMessage({ id, op, mono: copy, sampleRate, bpm }, [copy.buffer]);
+      analysisWorker.postMessage({ id, op, mono: copies[0], channels: op === 'prepare' ? copies : undefined, sampleRate, bpm: op === 'prepare' ? undefined : bpm, options: op === 'prepare' ? bpm : undefined }, copies.map((ch) => ch.buffer));
     } catch (err) {
+      clearTimeout(timer);
       analysisWaiting.delete(id);
       reject(err);
     }
@@ -1090,15 +1102,15 @@ async function loadToDeck(name, trackId) {
     if (deck.loadRequest !== request) return;
     const channels = [];
     for (let c = 0; c < buffer.numberOfChannels; c++) channels.push(buffer.getChannelData(c));
-    const mono = mixToMono(channels);
-    const wave = computeWaveform(mono, buffer.sampleRate, 300);
+    d.artist.textContent = 'Preparing track…';
+    const prepared = await analyse('prepare', channels, buffer.sampleRate, { analyze: needsAnalysis(track), key: needsKey(track) });
+    if (deck.loadRequest !== request) return;
 
     const patch = {};
     if (!track.duration) patch.duration = buffer.duration;
     if (needsAnalysis(track)) {
       d.artist.textContent = 'Finding the beat…';
-      const { tempo, meter, key } = await analyse('analyze', mono, buffer.sampleRate);
-      if (deck.loadRequest !== request) return;
+      const { tempo, meter, key } = prepared;
       if (track.bpm) patch.gridPrev = { bpm: track.bpm, beatOffset: track.beatOffset, beatsPerBar: track.beatsPerBar, downbeat: track.downbeat };
       Object.assign(patch, { gridVersion: ANALYSIS_VERSION, gridSource: 'auto' });
       if (tempo) {
@@ -1118,31 +1130,22 @@ async function loadToDeck(name, trackId) {
       if (needsKey(track)) Object.assign(patch, { key: key ? key.key : -1, chroma: key?.chroma ?? null, tuning: key?.tuning ?? 0, keyVersion: KEY_VERSION }); // -1: analysed, no clear key
     } else if (needsKey(track)) {
       d.artist.textContent = 'Finding the key…';
-      const key = await analyse('key', mono, buffer.sampleRate);
-      if (deck.loadRequest !== request) return;
+      const key = prepared.key;
       Object.assign(patch, { key: key ? key.key : -1, chroma: key?.chroma ?? null, tuning: key?.tuning ?? 0, keyVersion: KEY_VERSION });
     }
     if (Object.keys(patch).length) await saveTrack(track, patch);
     if (deck.loadRequest !== request) return;
 
-    state.waves[name] = wave;
+    state.waves[name] = prepared.wave;
     state.overviewImg[name] = null;
-    deck.load(buffer, track);
-    deck.onsets = null;
-    // The hits Sync listens to: in the background, ready a moment after the track.
-    analyse('onsets', mono, buffer.sampleRate).then((o) => {
-      if (deck.track !== track || deck.loadRequest !== request) return;
-      deck.onsets = o;
-      // Synced before its hits were ready (Sync stays on across loads): listen now, unless it's on air.
-      const quiet = !deck.playing || deck.fader.gain.value * deck.xfade.gain.value < 0.1;
-      if (group.has(deck) && quiet) listenAndTell(name);
-    }).catch((err) => console.error('Onsets unavailable:', err));
+    deck.load(buffer, track, prepared.channels);
+    deck.onsets = prepared.onsets;
     state.knobs[name].forEach((k) => k.set(k.reset)); // gain, EQ and filter back to 12 o'clock
     // A fresh load starts at normal speed; keep the slider in step.
     d.tempo.value = 0;
     deck.setRate(1);
     if (deck.resync && deck.bpm) doSync(name);
-    prepareAiStems(name, track, buffer); // background; DSP stems work meanwhile
+    prepareAiStems(name, track, buffer, { cachedOnly: true });
   } catch (err) {
     if (deck.loadRequest !== request) return;
     console.error(err);
@@ -1940,19 +1943,18 @@ async function setupYtdlpChip() {
   refresh();
 }
 
-// AI stems: one click downloads the separation model; after that every track
-// is separated once in the background and the stem buttons switch to it.
+// Cached stems load automatically; new separation starts only when requested.
 async function setupAiChip() {
   const chip = $('#aiChip');
+  let preparing = false;
   const render = async () => {
     const s = await api.stems.setup();
     chip.hidden = !s.runtime;
+    chip.disabled = preparing || s.downloading || state.stemJobs.size > 0;
     if (s.model) {
       chip.className = 'chip ok';
-      chip.textContent = `AI stems${s.provider === 'cuda' || s.provider === 'dml' ? ' · GPU' : s.provider === 'cpu' ? ' · CPU' : ''}`;
-      chip.title = s.gpuModel
-        ? `Studio-grade AI stems on your graphics card: ${s.gpuModel}. Each track is separated once, in the background, then cached.`
-        : 'Clean AI stem separation is on. Each track is separated once, in the background, then cached.';
+      chip.textContent = preparing || state.stemJobs.size ? 'Preparing AI stems…' : 'Prepare AI stems';
+      chip.title = 'Prepare AI stems for the loaded decks, one track at a time. Cached stems load automatically; dropping a track never starts new separation.';
     } else if (!s.downloading) {
       chip.className = 'chip warn';
       chip.textContent = 'Get AI stems';
@@ -1964,21 +1966,29 @@ async function setupAiChip() {
     chip.textContent = `AI stems ${Math.round((got / total) * 100)}%`;
   });
   chip.addEventListener('click', async () => {
-    const s = await render();
-    if (s.model || s.downloading) return;
-    chip.className = 'chip';
-    chip.textContent = 'AI stems 0%';
+    if (preparing) return;
+    preparing = true;
+    chip.disabled = true;
     try {
-      await api.stems.downloadModel();
-      toast('AI stems model installed — separating the loaded tracks.');
-      for (const n of DECKS) {
+      const s = await render();
+      if (s.downloading || state.stemJobs.size) return;
+      if (!s.model) {
+        chip.disabled = true;
+        chip.className = 'chip';
+        chip.textContent = 'AI stems 0%';
+        await api.stems.downloadModel();
+        toast('AI stems model installed — preparing the loaded tracks.');
+      }
+      for (const n of activeDecks()) {
         const deck = mixer.decks[n];
-        if (deck.track && deck.buffer) prepareAiStems(n, deck.track, deck.buffer);
+        if (deck.track && deck.buffer) await prepareAiStems(n, deck.track, deck.buffer);
       }
     } catch (err) {
       toast(`Couldn't get the AI stems model: ${cleanErr(err)}`, 'error');
+    } finally {
+      preparing = false;
+      render();
     }
-    render();
   });
   state.renderAiChip = render;
   render();

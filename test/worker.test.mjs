@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+let reply;
+globalThis.self = { postMessage: (message, transfers) => { reply = structuredClone(message, { transfer: transfers || [] }); } };
+await import('../src/renderer/analysis-worker.js');
+const channels = Array.from({ length: 2 }, () => Float32Array.from({ length: 48000 * 6 }, (_, i) => Math.sin(2 * Math.PI * 440 * i / 48000) * 0.5));
+self.onmessage({ data: { id: 1, op: 'prepare', channels, sampleRate: 48000, options: { analyze: false, key: false } } });
+assert.equal(reply.id, 1);
+assert.equal(reply.error, undefined);
+assert.equal(reply.result.wave.peak.length, 1800);
+assert.ok(reply.result.wave.peak.some(v => v > 0.4));
+assert.equal(reply.result.onsets.env.length, 1200);
+assert.equal(reply.result.channels[0].length, 48000 * 6);
+assert.equal(channels[0].byteLength, 0, 'scratch samples are transferred back, not copied again');
+assert.equal(reply.result.tempo, undefined, 'a manual/fresh grid is not re-analyzed');
+self.onmessage({ data: { id: 2, op: 'invalid' } });
+assert.match(reply.error, /unknown op/);
+delete globalThis.self;
+console.log('all background track-preparation checks passed');

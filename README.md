@@ -11,6 +11,12 @@ A two-deck DJ app for your own music and Creative Commons tracks, with yt-dlp bu
 > order), with a details strip showing exactly what was searched and an **Expand** button for more room. The
 > search problems are written up in `docs/search-issues/`.
 
+## What's new in 0.3.10-beta
+
+- Track drops prepare waveforms, beat data and scratch samples in a background worker. The interface stays responsive while full-length stereo songs load, and failed or stalled preparation reports an error instead of switching to heavy work on the UI thread.
+- New AI stem separation starts only when you click **Prepare AI stems**, one loaded track at a time. Cached AI stems still load automatically; the instant stem controls work while new AI stems are unprepared.
+- Added a full-length stereo drag-and-drop regression with rapid track replacement, plus worker recovery, timeout and sample-transfer tests. Run it with `npm run test:load`.
+
 ## What's new in 0.3.9-beta
 
 - Tempo changes and nudges preserve the current playback position. Enabling key processing or loading AI stems no longer starts a cued deck before its scheduled beat.
@@ -96,7 +102,7 @@ Your library and downloads live in `%APPDATA%\Commons DJ` (the **Open download f
 - **Automatic BPM and beat grid** detection on first load, with ÷2 / ×2 / TAP / BEAT to fix the grid by hand.
 - **Key detection** (Camelot + key name), **key shift** (♭/♯ without changing tempo), **key lock** (tempo without changing pitch) and **MATCH** to put a deck in the other deck's key.
 - **Stems**: turn vocals, drums or instruments on and off per deck in real time (DSP separation, approximate — see `docs/new-features/key-and-stems.md`).
-- **AI stems (prototype)**: if the HT-Demucs model and ONNX Runtime are installed, each track is separated once in the background and the stem buttons switch to the clean AI stems — see `docs/new-features/ai-stems-plan.md`.
+- **AI stems (prototype)**: with the HT-Demucs model and ONNX Runtime installed, click **Prepare AI stems** to process the loaded tracks one at a time. Cached stems load automatically, and the stem buttons switch to the AI stems when ready — see `docs/new-features/ai-stems-plan.md`.
 - **Mixer** with trim, 3-band EQ (kills at the bottom), one-knob filter (left = low-pass, right = high-pass), channel faders with meters, a crossfader with Blend or Cut curves, and a limiter on the master.
 - **Scrolling waveforms** that stay beat-aligned across both decks, plus an overview you can click to seek.
 - **Library** for your own files (drag them into the window or use Add files).
@@ -132,6 +138,7 @@ npm run fetch-ytdlp     # grabs yt-dlp for this computer, so `npm start` works
 npm start               # run in development
 npm test                # analysis, sync, transport, worker and library regressions
 npm run test:ui          # real UI with a disposable library, no audio output
+npm run test:load        # full-length stereo drag-and-drop responsiveness
 npm run test:audio       # recorded deck alignment; takes several minutes
 npm run package:win-arm64
 npm run package:win-x64

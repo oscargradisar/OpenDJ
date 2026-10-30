@@ -51,4 +51,16 @@ for (const change of [d => d.setRate(1.08), d => d.bend(0.04)]) {
   assert.equal(d.matchKeyTo(other), -4.65, 'key match compensates both recordings tuning');
   assert.equal(d.keyLock, true);
 }
+{
+  const d = deck();
+  const samples = new Float32Array([0, 0.5, -0.5]);
+  d.scratchChannels = [samples];
+  d.buffer.getChannelData = () => { throw new Error('must reuse worker samples'); };
+  let sent;
+  d.scratchNode = { port: { postMessage: (message, transfer) => { sent = structuredClone(message, { transfer }); } } };
+  d.sendScratchBuffer();
+  assert.deepEqual(Array.from(sent.channels[0]), [0, 0.5, -0.5]);
+  assert.equal(samples.byteLength, 0);
+  assert.equal(d.scratchChannels, null, 'transferred scratch data is released by the UI');
+}
 console.log('all engine regression tests passed');

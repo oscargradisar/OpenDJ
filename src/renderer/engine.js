@@ -213,10 +213,9 @@ export class Deck {
   }
 
   sendScratchBuffer() {
-    // shortcut: copies the decoded track into the worklet (2× its RAM), use a SharedArrayBuffer if memory gets tight.
-    const channels = [];
-    for (let c = 0; c < this.buffer.numberOfChannels; c++) channels.push(this.buffer.getChannelData(c).slice());
+    const channels = this.scratchChannels || Array.from({ length: this.buffer.numberOfChannels }, (_, c) => this.buffer.getChannelData(c).slice());
     this.scratchNode.port.postMessage({ type: 'load', channels }, channels.map((a) => a.buffer));
+    this.scratchChannels = null;
   }
 
   /** Hand on the record: playback stops, the scratch voice follows scratchTo(). Returns whether it was playing. */
@@ -439,10 +438,11 @@ export class Deck {
     return bars ? (pos - bars.downbeat) / this.beatPeriod : 0;
   }
 
-  load(buffer, track) {
+  load(buffer, track, scratchChannels = null) {
     this.stopSource();
     this.buffer = buffer;
     this.track = track;
+    this.scratchChannels = scratchChannels;
     this.playing = false;
     this.bendFactor = 1;
     this.scratching = false;
